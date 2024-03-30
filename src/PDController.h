@@ -93,7 +93,15 @@ struct PDControllerEvent {
  *
  * As USB PD communication is timing sensitive, most code will run as part of
  * an interrupt handler.
+ * 
+ * The template parameters control if the controller needs to send GoodCRC messages
+ * and/or retry transmissions that have not been acknowledged, or if it is
+ * handled automatically by the underlying PHY.
+ * 
+ * @tparam AUTO_GOOD_CRC 'true' if PHY sends GoodCRC messages automatically, 'false' otherwise
+ * @tparam AUTO_TX_RETRY 'true' if PHY retries transmissions automatically if no GoodCRC is received, 'false' otherwise
  */
+template<bool AUTO_GOOD_CRC, bool AUTO_TX_RETRY>
 class PDController {
 public:
     /// Event handler function to be called when an event occurs (called from interrupt)
@@ -191,12 +199,26 @@ private:
     friend struct PDPhySTM32F4;
     friend struct PDPhySTM32L4;
     friend struct PDPhySTM32UCPD;
+    friend struct PDPhyFUSB302;
     friend struct PDMessageDecoder;
 };
+
+#if defined(ARDUINO_ARCH_ESP32)
 
 /**
  * @brief USB Power Delivery Controller.
  * 
  * Global instance implementing the USB PD communication.
  */
-extern PDController PowerController;
+extern PDController<true, true> PowerController;
+
+#else
+
+/**
+ * @brief USB Power Delivery Controller.
+ * 
+ * Global instance implementing the USB PD communication.
+ */
+extern PDController<false, false> PowerController;
+
+#endif

@@ -45,4 +45,7 @@ struct CRC32 {
 
     /// @brief Expected residual value when validating checksum.
     static constexpr uint32_t ExpectedResidual = 0xC704DD7B;
+
+    /// @brief Expected residual value when validating checksum (with bits reversed and inverted).
+    static constexpr uint32_t ExpectedResidualRef = 0x2144DF1C;
 };

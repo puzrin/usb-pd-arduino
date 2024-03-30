@@ -22,7 +22,7 @@ PDSink::PDSink(bool busPowered)
 void PDSink::start(EventCallbackFunction callback) {
     eventCallback = callback;
     reset(false);
-    PowerController.startController([this](auto event) { handleEvent(event); });
+    PowerController.startController([this](const PDControllerEvent& event) { handleEvent(event); });
 }
 
 void PDSink::reset(bool connected) {

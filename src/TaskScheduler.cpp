@@ -7,20 +7,11 @@
 //
 
 #include <Arduino.h>
-#include <HardwareTimer.h>
 #include "TaskScheduler.h"
 
-// As the Arudino and the underlying HAL library incur a considerable overhead,
-// direct access to the timer would be preferred. However, the Arduino library
-// must be used for the interrupt handler. Otherwise, the linker will encounter
-// duplicate symbols.
-
-#if defined(STM32L4xx) || defined(STM32G0xx) || defined(STM32G4xx)
-#define TIMER TIM7
-#elif defined(STM32F103xB) || defined(STM32F4xx)
-#define TIMER TIM3
+#if defined(ARDUINO_ARCH_STM32)
+#include <HardwareTimer.h>
 #endif
-
 
 #define _countof(a) (sizeof(a) / sizeof(*(a)))
 
@@ -32,22 +23,51 @@ inline static bool hasExpired(uint32_t time, uint32_t now) {
     return (time - now) > 0xfff0000;
 }
 
+TaskScheduler Scheduler{};
+
+#if defined(ARDUINO_ARCH_STM32)
+
+// STM32: As the Arudino and the underlying HAL library incur a considerable overhead,
+// direct access to the timer would be preferred. However, the Arduino library
+// must be used for the interrupt handler. Otherwise, the linker will encounter
+// duplicate symbols.
+
+#if defined(STM32L4xx) || defined(STM32G0xx) || defined(STM32G4xx)
+#define TIMER TIM7
+#elif defined(STM32F103xB) || defined(STM32F4xx)
+#define TIMER TIM3
+#endif
+
 HardwareTimer timer(TIMER);
 
-TaskScheduler Scheduler{};
+#elif defined(ARDUINO_ARCH_ESP32)
+
+hw_timer_t* timer = nullptr;
+
+#endif
+
 
 TaskScheduler::TaskScheduler() : numScheduledTasks(-1) { }
 
 void TaskScheduler::start() {
     numScheduledTasks = 0;
 
-    // configure timer (advances every microsecond)
+#if defined(ARDUINO_ARCH_STM32)
+
+    // configure timer (advances every millisecond)
     timer.setPrescaleFactor((timer.getTimerClkFreq() + 500000) / 1000000);
     timer.attachInterrupt(onInterrupt);
     // one-pulse mode
     TIMER->CR1 |= TIM_CR1_OPM;
     // disable ARR buffering
     TIMER->CR1 &= ~TIM_CR1_ARPE_Msk;
+
+#elif defined(ARDUINO_ARCH_ESP32)
+
+    timer = timerBegin(0, (uint16_t)((APB_CLK_FREQ + 500000) / 1000000), true);
+    timerAttachInterrupt(timer, &onInterrupt, true);
+
+#endif
 }
 
 void TaskScheduler::scheduleTaskAfter(TaskFunction task, uint32_t delay) {
@@ -61,8 +81,7 @@ void TaskScheduler::scheduleTaskAt(TaskFunction task, uint32_t time) {
     if (numScheduledTasks >= static_cast<int>(_countof(scheduledTimes)))
         __builtin_trap();
 
-    // pause timer
-    TIMER->CR1 &= ~TIM_CR1_CEN_Msk;
+    pause();
     uint32_t now = micros();
 
     // find insertion index
@@ -96,8 +115,7 @@ void TaskScheduler::cancelTask(TaskFunction task) {
     if (numScheduledTasks == -1)
         return;
 
-    // pause timer
-    TIMER->CR1 &= ~TIM_CR1_CEN_Msk;
+    pause();
 
     // find task to remove
     int index;
@@ -125,12 +143,14 @@ void TaskScheduler::cancelAllTasks() {
     if (numScheduledTasks == -1)
         return;
 
-    // pause timer
-    TIMER->CR1 &= ~TIM_CR1_CEN_Msk;
+    pause();
     numScheduledTasks = 0;
 }
 
 void TaskScheduler::checkPendingTasks() {
+#if defined(ARDUINO_ARCH_ESP32)
+    timerStop(timer);
+#endif
 
     uint32_t now = 0;
 
@@ -158,13 +178,29 @@ void TaskScheduler::checkPendingTasks() {
     }
 
     uint32_t delayToFirstTask = timeDifference(scheduledTimes[0], micros());
+
+    // restart timer
+#if defined(ARDUINO_ARCH_STM32)
     if (delayToFirstTask > 0xffff)
         delayToFirstTask = 0xffff;
 
-    // restart timer
     TIMER->CNT = 0;
     TIMER->ARR = delayToFirstTask;
     TIMER->CR1 |= TIM_CR1_CEN;
+#elif defined(ARDUINO_ARCH_ESP32)
+    timerWrite(timer, 0);
+    timerAlarmWrite(timer, delayToFirstTask, false);
+    timerAlarmEnable(timer);
+    timerStart(timer);
+#endif
+}
+
+void TaskScheduler::pause() {
+#if defined(ARDUINO_ARCH_STM32)
+    TIMER->CR1 &= ~TIM_CR1_CEN_Msk;
+#elif defined(ARDUINO_ARCH_ESP32)
+    timerAlarmDisable(timer);
+#endif
 }
 
 void TaskScheduler::onInterrupt() {

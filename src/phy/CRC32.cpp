@@ -7,9 +7,13 @@
 //
 
 #include "CRC32.h"
-#include "CMSISHelper.h"
+
 
 #if defined(STM32L4xx)
+
+// STM32 L4 family: Use built-in CRC peripheral
+
+#include "CMSISHelper.h"
 
 bool CRC32::isValid(const uint8_t* data, int len) {
     CRC->CR = (0b01 << CRC_CR_REV_IN_Pos) | CRC_CR_RESET;
@@ -29,7 +33,26 @@ uint32_t CRC32::compute(const uint8_t* data, int len) {
     return ~CRC->DR;
 }
 
+
+#elif defined(ARDUINO_ARCH_ESP32)
+
+// ESP32: Use built-in functions
+
+#include <esp32/rom/crc.h>
+
+bool CRC32::isValid(const uint8_t* data, int len) {
+    return compute(data, len) == ExpectedResidualRef;
+}
+
+uint32_t CRC32::compute(const uint8_t* data, int len) {
+    return crc32_le(0, data, len);
+}
+
+
 #else
+
+// All other MCUs: Use software implementation as the device either has not CRC peripheral
+// or does not support byte-wise operation.
 
 /// look-up table
 static const uint32_t CRC32Lookup[16] = {
@@ -52,14 +75,14 @@ static uint32_t CRC32Calc(const uint8_t* data, int len) {
     return ~crc;
 }
 
-
 bool CRC32::isValid(const uint8_t* data, int len) {
     uint32_t crc = CRC32Calc(data, len);
-    return __RBIT(~crc) == ExpectedResidual;
+    return crc == ExpectedResidualRef;
 }
 
 uint32_t CRC32::compute(const uint8_t* data, int len) {
     return CRC32Calc(data, len);
 }
+
 
 #endif

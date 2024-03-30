@@ -8,7 +8,13 @@
 
 #pragma once
 
+#include <Arduino.h>
 #include <stdint.h>
+
+#ifndef ARDUINO_ISR_ATTR
+#define ARDUINO_ISR_ATTR
+#endif
+
 
 /**
  * @brief Scheduler to execute tasks in the future.
@@ -33,7 +39,7 @@ struct TaskScheduler {
      * @param task task to execute
      * @param delay delay, in µs
      */
-    void scheduleTaskAfter(TaskFunction task, uint32_t delay);
+    ARDUINO_ISR_ATTR void scheduleTaskAfter(TaskFunction task, uint32_t delay);
 
     /**
      * @brief Schedules a task to be executed at a time in the future.
@@ -41,19 +47,19 @@ struct TaskScheduler {
      * @param task task to execute
      * @param time time, in µs, same base as `micros()`
      */
-    void scheduleTaskAt(TaskFunction task, uint32_t time);
+    ARDUINO_ISR_ATTR void scheduleTaskAt(TaskFunction task, uint32_t time);
 
     /**
      * @brief Cancels the execution of a previously scheduled task.
      * 
      * @param task task to cancel 
      */
-    void cancelTask(TaskFunction task);
+    ARDUINO_ISR_ATTR void cancelTask(TaskFunction task);
 
     /**
      * @brief Cancels the execution of all scheduled tasks.
      */
-    void cancelAllTasks();
+    ARDUINO_ISR_ATTR void cancelAllTasks();
 
 private:
     int numScheduledTasks;
@@ -61,8 +67,9 @@ private:
     TaskFunction scheduledFunctions[10];
 
     void start();
-    void checkPendingTasks();
-    static void onInterrupt();
+    ARDUINO_ISR_ATTR void pause();
+    ARDUINO_ISR_ATTR void checkPendingTasks();
+    static ARDUINO_ISR_ATTR void onInterrupt();
 };
 
 /**

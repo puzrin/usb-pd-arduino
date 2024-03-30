@@ -11,6 +11,7 @@
 //
 
 #include <Arduino.h>
+#include <Wire.h>
 #include "USBPowerDelivery.h"
 
 static void handleEvent(PDSinkEventType eventType);
@@ -25,7 +26,11 @@ void setup() {
     Serial.begin(115200);
     while (!Serial)
         delay(10);
-    Serial.println("USB BP for Arduino - Volatage Change Test");
+    Serial.println("USB PD for Arduino - Volatage Change Test");
+
+    #if defined(ARDUINO_ARCH_ESP32)
+        Wire.begin(SDA, SCL, 1000000);
+    #endif
 
     PowerSink.start(handleEvent);
 
@@ -61,7 +66,7 @@ void handleEvent(PDSinkEventType eventType) {
             Serial.println("New source capabilities (USB PD supply)");
             isUSBPDSource = true;
             voltageIndex = 0;
-            nextVoltageChangeTime = millis() + 2000;
+            nextVoltageChangeTime = millis() + 3000;
         } else {
             isUSBPDSource = false;
             Serial.println("New source capabilities (no USB PD supply connected)");

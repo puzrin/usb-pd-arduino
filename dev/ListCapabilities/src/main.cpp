@@ -11,6 +11,7 @@
 //
 
 #include <Arduino.h>
+#include <Wire.h>
 #include "USBPowerDelivery.h"
 
 static void handleEvent(PDSinkEventType eventType);
@@ -22,6 +23,10 @@ void setup() {
     while (!Serial)
         delay(10);
     Serial.println("USB BP for Arduino - List Capabilities");
+
+    #if defined(ARDUINO_ARCH_ESP32)
+        Wire.begin(SDA, SCL, 1000000);
+    #endif
 
     PowerSink.start(handleEvent);
 
