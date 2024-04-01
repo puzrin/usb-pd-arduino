@@ -47,19 +47,19 @@
 #endif
 
 
-static PDMessage* rxMessage;
-static int ccActive;
+static PDPhySTM32UCPD* singleInstance = nullptr;
 
 
-void PDPhy::initMonitor() {
-    PDPhySTM32UCPD::init(true);
-}
+PDPhySTM32UCPD::PDPhySTM32UCPD() : controller(nullptr), rxMessage(nullptr), ccActive(0) {}
 
-void PDPhy::initSink() {
-    PDPhySTM32UCPD::init(false);
+void PDPhySTM32UCPD::startSink(PDController<PDPhySTM32UCPD>* controller) {
+    this->controller = controller;
+    init(false);
 }
 
 void PDPhySTM32UCPD::init(bool isMonitor) {
+    singleInstance = this;
+
     // clocks
     LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_PWR);
     LL_AHB1_GRP1_EnableClock(LL_AHB1_GRP1_PERIPH_CRC);
@@ -171,13 +171,16 @@ void PDPhySTM32UCPD::init(bool isMonitor) {
     NVIC_EnableIRQ(UCPD_IRQ);
 }
 
-void PDPhy::prepareRead(PDMessage* msg) {
+void PDPhySTM32UCPD::prepareRead(PDMessage* msg) {
     rxMessage = msg;
     if (ccActive != 0)
-        PDPhySTM32UCPD::enableRead();
+        enableRead();
 }
 
 void PDPhySTM32UCPD::enableRead() {
+    if (rxMessage == nullptr)
+        return;
+        
     // enable RX DMA
     LL_DMA_SetMemoryAddress(DMA_RX, DMA_CHANNEL_RX, reinterpret_cast<uint32_t>(&rxMessage->header));
     LL_DMA_SetDataLength(DMA_RX, DMA_CHANNEL_RX, 30);
@@ -185,7 +188,7 @@ void PDPhySTM32UCPD::enableRead() {
     LL_DMA_EnableChannel(DMA_RX, DMA_CHANNEL_RX);
 }
 
-bool PDPhy::transmitMessage(const PDMessage* msg) {
+bool PDPhySTM32UCPD::transmitMessage(const PDMessage* msg) {
     // configure DMA request
     LL_DMA_SetMemoryAddress(DMA_TX, DMA_CHANNEL_TX, reinterpret_cast<uint32_t>(&msg->header));
     LL_DMA_SetDataLength(DMA_TX, DMA_CHANNEL_TX, msg->payloadSize());
@@ -232,11 +235,11 @@ void PDPhySTM32UCPD::disableCommunication() {
 
 // interrupt handler
 extern "C" void UCPD1_IRQHandler() {
-    PDPhySTM32UCPD::handleInterrupt();
+    singleInstance->handleInterrupt();
 }
 
 extern "C" void UCPD1_2_IRQHandler() {
-    PDPhySTM32UCPD::handleInterrupt();
+    singleInstance->handleInterrupt();
 }
 
 void PDPhySTM32UCPD::handleInterrupt() {
@@ -261,14 +264,14 @@ void PDPhySTM32UCPD::handleInterrupt() {
             else
                 disableCommunication();
 
-            PowerController.onVoltageChanged(cc);
+            controller->onVoltageChanged(cc);
         }
     }
 
     // hard reset received
     if ((status & UCPD_SR_RXHRSTDET) != 0) {
         LL_UCPD_ClearFlag_RxHRST(UCPD1);
-        PowerController.onReset(PDSOPSequence::hardReset);
+        controller->onReset(PDSOPSequence::hardReset);
     }
 
     // message received
@@ -279,10 +282,10 @@ void PDPhySTM32UCPD::handleInterrupt() {
             uint32_t orderedSet = LL_UCPD_ReadRxOrderSet(UCPD1);
             rxMessage->sopSequence = mapSOPSequence(orderedSet);
             rxMessage->cc = ccActive;
-            PowerController.onMessageReceived(rxMessage);
+            controller->onMessageReceived(rxMessage);
 
         } else {
-            PowerController.onError();
+            controller->onError();
         }
     }
 
@@ -290,21 +293,21 @@ void PDPhySTM32UCPD::handleInterrupt() {
     if ((status & UCPD_SR_TXMSGSENT) != 0) {
         LL_UCPD_ClearFlag_TxMSGSENT(UCPD1);
         LL_DMA_DisableChannel(DMA_TX, DMA_CHANNEL_TX);
-        PowerController.onMessageTransmitted(true);
+        controller->onMessageTransmitted(true);
     }
 
     // message aborted
     if ((status & UCPD_SR_TXMSGABT) != 0) {
         LL_UCPD_ClearFlag_TxMSGABT(UCPD1);
         LL_DMA_DisableChannel(DMA_TX, DMA_CHANNEL_TX);
-        PowerController.onMessageTransmitted(false);
+        controller->onMessageTransmitted(false);
     }
 
     // message discarded
     if ((status & UCPD_SR_TXMSGDISC) != 0) {
         LL_UCPD_ClearFlag_TxMSGDISC(UCPD1);
         LL_DMA_DisableChannel(DMA_TX, DMA_CHANNEL_TX);
-        PowerController.onMessageTransmitted(false);
+        controller->onMessageTransmitted(false);
     }
 }
 

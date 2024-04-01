@@ -20,10 +20,6 @@ jobs:
       - name: Install PlatformIO Core
         run: pip install --upgrade platformio
 
-      - name: Build ProtocolAnalyzer
-        run: pio run
-        working-directory: ./dev/ProtocolAnalyzer
-
       - name: Build ListCapabilities
         run: pio run
         working-directory: ./dev/ListCapabilities

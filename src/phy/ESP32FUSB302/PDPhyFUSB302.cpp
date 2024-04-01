@@ -11,6 +11,7 @@
 #if defined(ARDUINO_ARCH_ESP32)
 
 #include <Arduino.h>
+#include <FunctionalInterrupt.h>
 #include <Wire.h>
 #include <string.h>
 #include "FUSB302Constants.h"
@@ -20,54 +21,40 @@
 
 using namespace FUSB302;
 
-static PDPhyFUSB302 phy{};
-
-struct QueueItem {
-    FUSB302Event event;
-    PDMessage* message;
-};
-
-
-/// PDPhy
-
-void PDPhy::initSink() {
-    phy.init();
-    phy.startSink();
-}
-
-void PDPhy::prepareRead(PDMessage* msg) {
-    phy.postEvent(FUSB302Event::PrepareRead, msg);
-}
-
-bool PDPhy::transmitMessage(const PDMessage* msg) {
-    phy.postEvent(FUSB302Event::TransmitMessage, (PDMessage*)msg);
-    return true;
-}
-
+static char deviceId[20];
 
 PDPhyFUSB302::PDPhyFUSB302()
-    : state(FUSB302State::NotStarted), rxMessage(nullptr), activeCC(0)
-{
+    : wire(&Wire), rxMessage(nullptr), controller(nullptr), state(FUSB302State::NotStarted), 
+        i2CAddress(0x22), interruptPin(10), activeCC(0) {}
+
+void PDPhyFUSB302::startSink(PDController<PDPhyFUSB302>* controller) {
+    controller->setGoodCrcHandling(true);
+    this->controller = controller;
+
     eventQueue = xQueueCreate(10, sizeof(QueueItem));
+    init();
+
+    xTaskCreate(sinkTaskStatic, "USB PD", 4000, this, 10, nullptr);
 }
 
+void PDPhyFUSB302::prepareRead(PDMessage* msg) {
+    postEvent(FUSB302Event::PrepareRead, msg);
+}
 
-static char deviceId[20];
+bool PDPhyFUSB302::transmitMessage(const PDMessage* msg) {
+    postEvent(FUSB302Event::TransmitMessage, (PDMessage*)msg);
+    return true;
+}
 
 void PDPhyFUSB302::init() {
     state = FUSB302State::NotStarted;
     activeCC = 0;
 
-    // consume all message (processing prepareRead events)
-    QueueItem item;
-    while (xQueueReceive(eventQueue, &item, 0)) {
-        if (item.event == FUSB302Event::PrepareRead)
-            rxMessage = item.message;
-    }
+    xQueueReset(eventQueue);
 
     // configure interrupt pin
-    pinMode(InterruptPin, INPUT_PULLUP);
-    attachInterrupt(digitalPinToInterrupt(InterruptPin), onInterrupt, FALLING);
+    pinMode(interruptPin, INPUT_PULLUP);
+    attachInterrupt(interruptPin, [this](){ onInterrupt(); }, FALLING);
 
     // full reset
     writeRegister(Reg::Reset, Reset::SWReset | Reset::PDReset);
@@ -83,10 +70,6 @@ void PDPhyFUSB302::init() {
     writeRegister(Reg::MaskA, MaskA::M_All);
     // Mask all interrupts
     writeRegister(Reg::MaskB, MaskB::M_All);
-}
-
-void PDPhyFUSB302::startSink() {
-    xTaskCreate(sinkTaskStatic, "USB PD", 4000, this, 10, nullptr);
 }
 
 void PDPhyFUSB302::sinkTaskStatic(void* param) {
@@ -129,7 +112,7 @@ void PDPhyFUSB302::processEvent(FUSB302Event event, PDMessage* message) {
 void PDPhyFUSB302::handleInterrupts() {
     do {
         handleInterrupt();
-    } while (digitalRead(InterruptPin) == LOW);
+    } while (digitalRead(interruptPin) == LOW);
 }
 
 // handle single interrupt event
@@ -139,8 +122,10 @@ void PDPhyFUSB302::handleInterrupt() {
 
     // hard reset
     if ((interruptA & InterruptA::I_HardReset) != 0) {
-        PowerController.onReset(PDSOPSequence::hardReset);
+        Scheduler.cancelTask(TaskIdRetryWaitingDone);
+        Scheduler.cancelTask(TaskIdMeasuringExpired);
         transitionToRetryWaiting();
+        controller->onReset(PDSOPSequence::hardReset);
         return;
     }
 
@@ -172,7 +157,7 @@ void PDPhyFUSB302::handleInterrupt() {
     }
 
     if ((interruptA & InterruptA::I_RetryFail) != 0) {
-        PowerController.onMessageTransmitted(false);
+        controller->onMessageTransmitted(false);
     }
 
     if ((interruptA & InterruptA::I_TxSent) != 0) {
@@ -180,7 +165,7 @@ void PDPhyFUSB302::handleInterrupt() {
         uint8_t Status1 = readRegister(Reg::Status1);
         if ((Status1 & Status1::TxEmpty) != 0)
             writeRegister(Reg::Power, Power::PwrAll & ~Power::PwrIntOsc);
-        PowerController.onMessageTransmitted(true);
+        controller->onMessageTransmitted(true);
     }
 
     // CRC check (message received)
@@ -213,11 +198,7 @@ void PDPhyFUSB302::postEventFromISR(FUSB302Event event, PDMessage* message) {
 }
 
 void PDPhyFUSB302::onInterrupt() {
-    phy.postEventFromISR(FUSB302Event::Interrupt);
-}
-
-void PDPhyFUSB302::sendMsgToTransitionToMonitoring() {
-    phy.postEvent(FUSB302Event::TransitionToMonitoring);
+    postEventFromISR(FUSB302Event::Interrupt);
 }
 
 void PDPhyFUSB302::transitionToMonitoring() {
@@ -246,10 +227,13 @@ void PDPhyFUSB302::transitionToMeasuring(int cc) {
 
     state = FUSB302State::Measuring;
     activeCC = cc;
-    Scheduler.scheduleTaskAfter(sendMsgToTransitionToRetryWaiting, 300000);
+    Scheduler.scheduleTaskAfter(TaskIdMeasuringExpired, [this](){ postEvent(FUSB302Event::TransitionToRetryWaiting); }, 300000);
 }
 
 void PDPhyFUSB302::transitionToAttached() {
+    state = FUSB302State::Attached;
+    Scheduler.cancelTask(TaskIdMeasuringExpired);
+
     // Enable interrupts for VBUS OK, BC level, alert and CRC check OK
     writeRegister(Reg::Mask, Mask::M_All & ~(Mask::M_VbusOk | Mask::M_CRCCheck));
     // Unmask interrupts for hard reset, TX sent, retry failed 
@@ -259,21 +243,15 @@ void PDPhyFUSB302::transitionToAttached() {
     // Configure auto retry for packets withtout GoodCRC acknowledgement
     writeRegister(Reg::Control3, Control3::NRetries_3 | Control3::AutoRetry);
 
-    state = FUSB302State::Attached;
-    Scheduler.cancelTask(sendMsgToTransitionToRetryWaiting);
-    PowerController.onVoltageChanged(activeCC);
+    controller->onVoltageChanged(activeCC);
 }
 
 void PDPhyFUSB302::transitionToRetryWaiting() {
     // Reset FUSB302
     init();
     state = FUSB302State::RetryWaiting;
-    Scheduler.scheduleTaskAfter(sendMsgToTransitionToMonitoring, 500000);
-    PowerController.onVoltageChanged(0);
-}
-
-void PDPhyFUSB302::sendMsgToTransitionToRetryWaiting() {
-    phy.postEvent(FUSB302Event::TransitionToRetryWaiting);
+    Scheduler.scheduleTaskAfter(TaskIdRetryWaitingDone, [this](){ postEvent(FUSB302Event::TransitionToMonitoring); }, 500000);
+    controller->onVoltageChanged(0);
 }
 
 int PDPhyFUSB302::readMessage() {
@@ -296,7 +274,7 @@ int PDPhyFUSB302::readMessage() {
     uint8_t len = rxMessage->payloadSize() + 2; // objects - header + CRC
     readRegister(Reg::FIFOS, len, rxMessage->payload() + 2);
 
-    PowerController.onMessageReceived(rxMessage);
+    controller->onMessageReceived(rxMessage);
 
     return len;
 }
@@ -349,33 +327,33 @@ void PDPhyFUSB302::getDeviceId(char* deviceIdBuffer) {
 }
 
 uint8_t PDPhyFUSB302::readRegister(uint8_t r) {
-    Wire.beginTransmission(I2CAddress);
-    Wire.write(r);
-    Wire.endTransmission(false);
-    Wire.requestFrom(I2CAddress, (uint8_t)1);
-    return (uint8_t) Wire.read();
+    wire->beginTransmission(i2CAddress);
+    wire->write(r);
+    wire->endTransmission(false);
+    wire->requestFrom(i2CAddress, (uint8_t)1);
+    return (uint8_t) wire->read();
 }
 
 void PDPhyFUSB302::readRegister(uint8_t firstReg, int n, uint8_t* data) {
-    Wire.beginTransmission(I2CAddress);
-    Wire.write(firstReg);
-    Wire.endTransmission(false);
-    Wire.requestFrom(I2CAddress, (uint8_t)n);
-    Wire.readBytes(data, n);
+    wire->beginTransmission(i2CAddress);
+    wire->write(firstReg);
+    wire->endTransmission(false);
+    wire->requestFrom(i2CAddress, (uint8_t)n);
+    wire->readBytes(data, n);
 }
 
 void PDPhyFUSB302::writeRegister(uint8_t r, uint8_t value) {
-    Wire.beginTransmission(I2CAddress);
-    Wire.write(r);
-    Wire.write(value);
-    Wire.endTransmission();
+    wire->beginTransmission(i2CAddress);
+    wire->write(r);
+    wire->write(value);
+    wire->endTransmission();
 }
 
 void PDPhyFUSB302::writeRegister(uint8_t firstReg, int n, const uint8_t* data) {
-    Wire.beginTransmission(I2CAddress);
-    Wire.write(firstReg);
-    Wire.write(data, n);
-    Wire.endTransmission();
+    wire->beginTransmission(i2CAddress);
+    wire->write(firstReg);
+    wire->write(data, n);
+    wire->endTransmission();
 }
 
 static const PDSOPSequence SopSequenceMap[] = {

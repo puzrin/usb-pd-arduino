@@ -14,6 +14,19 @@
 #include <Wire.h>
 #include "USBPowerDelivery.h"
 
+#if defined(ARDUINO_ARCH_ESP32)
+
+typedef PDPhyFUSB302 PDPhy;
+
+#elif defined(ARDUINO_ARCH_STM32)
+
+#if defined(STM32G0xx) || defined(STM32G4xx)
+typedef PDPhySTM32UCPD PDPhy;
+#endif
+
+#endif
+
+
 static void handleEvent(PDSinkEventType eventType);
 static void switchVoltage();
 static bool hasExpired(uint32_t time);
@@ -22,17 +35,25 @@ static bool isUSBPDSource = false;
 static uint32_t nextVoltageChangeTime = 0;
 static int voltageIndex = 0;
 
+static PDPhy pdPhy;
+static PDController<PDPhy> powerController(&pdPhy);
+static PDProtocolAnalyzer<PDController<PDPhy>> protocolAnalyzer(&powerController);
+static PDSink<PDController<PDPhy>> sink(&powerController);
+
 void setup() {
     Serial.begin(115200);
     while (!Serial)
         delay(10);
     Serial.println("USB PD for Arduino - Volatage Change Test");
 
+    // configure PHY (if needed)
     #if defined(ARDUINO_ARCH_ESP32)
         Wire.begin(SDA, SCL, 1000000);
+        pdPhy.setTwoWire(&Wire);
+        pdPhy.setInterruptPin(10);
     #endif
 
-    PowerSink.start(handleEvent);
+    sink.start(handleEvent);
 
     #if defined(SNK1M1_SHIELD)
         NucleoSNK1MK1.init();
@@ -40,8 +61,8 @@ void setup() {
 }
 
 void loop() {
-    PowerSink.poll();
-    PDProtocolAnalyzer.poll();
+    sink.poll();
+    protocolAnalyzer.poll();
 
     if (isUSBPDSource && hasExpired(nextVoltageChangeTime))
         switchVoltage();
@@ -51,18 +72,18 @@ void switchVoltage() {
     // select next fixed voltage
     do {
         voltageIndex += 1;
-        if (voltageIndex >= PowerSink.numSourceCapabilities)
+        if (voltageIndex >= sink.numSourceCapabilities)
             voltageIndex = 0;
-    } while (PowerSink.sourceCapabilities[voltageIndex].supplyType != PDSupplyType::fixed);
+    } while (sink.sourceCapabilities[voltageIndex].supplyType != PDSupplyType::fixed);
 
-    PowerSink.requestPower(PowerSink.sourceCapabilities[voltageIndex].maxVoltage);
+    sink.requestPower(sink.sourceCapabilities[voltageIndex].maxVoltage);
     nextVoltageChangeTime += 3000;
 }
 
 void handleEvent(PDSinkEventType eventType) {
     switch (eventType) {
     case PDSinkEventType::sourceCapabilitiesChanged:
-        if (PowerSink.isConnected()) {
+        if (sink.isConnected()) {
             Serial.println("New source capabilities (USB PD supply)");
             isUSBPDSource = true;
             voltageIndex = 0;
@@ -74,7 +95,7 @@ void handleEvent(PDSinkEventType eventType) {
         break;
 
     case PDSinkEventType::voltageChanged:
-        Serial.printf("Voltage changed: %5dmV  %5dmA (max)", PowerSink.activeVoltage, PowerSink.activeCurrent);
+        Serial.printf("Voltage changed: %5dmV  %5dmA (max)", sink.activeVoltage, sink.activeCurrent);
         Serial.println();
         break;
 

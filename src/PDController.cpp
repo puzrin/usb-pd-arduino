@@ -8,75 +8,68 @@
 
 #include <Arduino.h>
 #include "PDController.h"
-#include "PDPhy.h"
 #include "TaskScheduler.h"
 
 
-template<bool AUTO_GOOD_CRC, bool AUTO_TX_RETRY>
-PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::PDController()
-: ccPin(0), isMonitorOnly(true), eventHandler(nullptr), rxMessageHead(rxBuffer), txMessage((PDMessage*)txBuffer),
-    logHead(0), logTail(0), txMessageId(0), txRetryCount(0), lastRxMessageId(-1), lastSpecRev(1), lastMessage(nullptr)
-{
-    PDPhy::prepareRead(reinterpret_cast<PDMessage*>(rxMessageHead));
+template <class Phy>
+PDController<Phy>::PDController(Phy* phy) :
+    ccPin(0), eventHandler(nullptr), phy(phy), isMonitorOnly(true), isPhyGoodCrc(false),
+    rxMessageHead(rxBuffer), txMessage((PDMessage*)txBuffer),
+    txMessageId(0), txRetryCount(0), lastRxMessageId(-1), lastSpecRev(1), lastMessage(nullptr) {}
+
+template <class Phy>
+void PDController<Phy>::setGoodCrcHandling(bool phyGoodCrc) {
+    isPhyGoodCrc = phyGoodCrc;
 }
 
-template<bool AUTO_GOOD_CRC, bool AUTO_TX_RETRY>
-void PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::startController(EventHandlerFunction handler) {
+template <class Phy>
+void PDController<Phy>::startController(EventHandlerFunction handler) {
     eventHandler = handler;
     isMonitorOnly = false;
-    PDPhy::initSink();
+    phy->startSink(this);
     reset();
 }
 
-template<bool AUTO_GOOD_CRC, bool AUTO_TX_RETRY>
-void PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::startMonitor() {
-    eventHandler = nullptr;
-    isMonitorOnly = true;
-    PDPhy::initMonitor();
-    reset();
+template <class Phy>
+const PDLogEntry* PDController<Phy>::popLogEntry() {    
+    bool found = logEntries.get(currentLogEntry);
+    return found ? &currentLogEntry : nullptr;
 }
 
-template<bool AUTO_GOOD_CRC, bool AUTO_TX_RETRY>
-const PDLogEntry* PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::popLogEntry() {
-    if (logHead == logTail)
-        return nullptr;
-
-    uint32_t index = logTail % LogSize;
-    logTail += 1;
-    return &logEntries[index];
+template <class Phy>
+void PDController<Phy>::log(PDLogEntryType type, const PDMessage* message) {
+    PDLogEntry entry;
+    entry.type = type;
+    entry.time = micros();
+    entry.message = message;
+    logEntries.put(entry);
 }
 
-template<bool AUTO_GOOD_CRC, bool AUTO_TX_RETRY>
-void PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::log(PDLogEntryType type, const PDMessage* message) {
-    uint32_t index = logHead % LogSize;
-    logEntries[index].type = type;
-    logEntries[index].time = micros();
-    logEntries[index].message = message;
-    logHead += 1;
-}
-
-template<bool AUTO_GOOD_CRC, bool AUTO_TX_RETRY>
-void PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::reset() {
+template <class Phy>
+void PDController<Phy>::reset() {
     lastRxMessageId = -1;
     txMessageId = 0;
     txRetryCount = 0;
     lastMessage = nullptr;
-    Scheduler.cancelTask(noGoodCrcReceivedCallback);
+
+    phy->prepareRead(reinterpret_cast<PDMessage*>(rxMessageHead));
+
+    Scheduler.cancelTask(TaskIdNoGoodCrcReceived);
 
     if (eventHandler != nullptr)
         eventHandler(PDControllerEvent(PDControllerEventType::reset));
 }
 
-template<bool AUTO_GOOD_CRC, bool AUTO_TX_RETRY>
-void PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::onReset(PDSOPSequence seq) {
+template <class Phy>
+void PDController<Phy>::onReset(PDSOPSequence seq) {
     reset();
     log(seq == PDSOPSequence::hardReset ? PDLogEntryType::hardReset : PDLogEntryType::cableReset);
     if (eventHandler != nullptr)
         eventHandler(PDControllerEvent(PDControllerEventType::reset));
 }
 
-template<bool AUTO_GOOD_CRC, bool AUTO_TX_RETRY>
-bool PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::sendControlMessage(PDMessageType messageType) {
+template <class Phy>
+bool PDController<Phy>::sendControlMessage(PDMessageType messageType) {
     if (isTransmitting())
         return false;
     txMessage->initControl(messageType, lastSpecRev);
@@ -84,8 +77,8 @@ bool PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::sendControlMessage(PDMessageTyp
     return sendMessage();
 }
 
-template<bool AUTO_GOOD_CRC, bool AUTO_TX_RETRY>
-bool PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::sendDataMessage(PDMessageType messageType, int numObjects, const uint32_t* objects) {
+template <class Phy>
+bool PDController<Phy>::sendDataMessage(PDMessageType messageType, int numObjects, const uint32_t* objects) {
     if (isTransmitting())
         return false;
     txMessage->initData(messageType, numObjects, lastSpecRev);
@@ -94,10 +87,10 @@ bool PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::sendDataMessage(PDMessageType m
     return sendMessage();
 }
 
-template<bool AUTO_GOOD_CRC, bool AUTO_TX_RETRY>
-bool PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::sendMessage() {
+template <class Phy>
+bool PDController<Phy>::sendMessage() {
     // add message ID
-    if (AUTO_GOOD_CRC) {
+    if (isPhyGoodCrc) {
         txMessage->setMessageId(txMessageId);
     } else {
         bool isGoodCrc = txMessage->type() == PDMessageType::controlGoodCrc;
@@ -105,15 +98,15 @@ bool PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::sendMessage() {
     }
 
     txMessage->cc = ccPin;
-    if (!PDPhy::transmitMessage(txMessage))
+    if (!phy->transmitMessage(txMessage))
         return false;
 
     log(PDLogEntryType::transmissionStarted, txMessage);
     return true;
 }
 
-template<bool AUTO_GOOD_CRC, bool AUTO_TX_RETRY>
-void PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::onMessageTransmitted(bool successful) {
+template <class Phy>
+void PDController<Phy>::onMessageTransmitted(bool successful) {
 
     if (!successful) {
         log(PDLogEntryType::transmissionFailed);
@@ -123,7 +116,7 @@ void PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::onMessageTransmitted(bool succe
 
     log(PDLogEntryType::transmissionCompleted);
 
-    if (AUTO_TX_RETRY) {
+    if (isPhyGoodCrc) {
         prepareNextTxMessage();        
 
     } else {
@@ -132,7 +125,7 @@ void PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::onMessageTransmitted(bool succe
 
         if (txMessage->type() != PDMessageType::controlGoodCrc) {
             // scheduled timer to check for GoodCRC
-            Scheduler.scheduleTaskAfter(noGoodCrcReceivedCallback, paramCRCReceiveTimer);
+            Scheduler.scheduleTaskAfter(TaskIdNoGoodCrcReceived, [this](){ onNoGoodCrcReceived(); }, paramCRCReceiveTimer);
 
         } else {
             prepareNextTxMessage();
@@ -147,32 +140,23 @@ void PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::onMessageTransmitted(bool succe
     }
 }
 
-template<bool AUTO_GOOD_CRC, bool AUTO_TX_RETRY>
-void PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::noGoodCrcReceivedCallback() {
-    if (!AUTO_TX_RETRY) {
-        PowerController.onNoGoodCrcReceived();
+template <class Phy>
+void PDController<Phy>::onNoGoodCrcReceived() {
+    Scheduler.cancelTask(TaskIdNoGoodCrcReceived);
+
+    txRetryCount -= 1;
+    if (txRetryCount > 0 && txMessage->type() != PDMessageType::controlGoodCrc) {
+        // retry
+        sendMessage();
+
+    } else {
+        // transmission has failed - no retry
+        prepareNextTxMessage();
     }
 }
 
-template<bool AUTO_GOOD_CRC, bool AUTO_TX_RETRY>
-void PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::onNoGoodCrcReceived() {
-    if (!AUTO_TX_RETRY) {
-        Scheduler.cancelTask(noGoodCrcReceivedCallback);
-
-        txRetryCount -= 1;
-        if (txRetryCount > 0 && txMessage->type() != PDMessageType::controlGoodCrc) {
-            // retry
-            sendMessage();
-
-        } else {
-            // transmission has failed - no retry
-            prepareNextTxMessage();
-        }
-    }
-}
-
-template<bool AUTO_GOOD_CRC, bool AUTO_TX_RETRY>
-void PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::onMessageReceived(PDMessage* message) {
+template <class Phy>
+void PDController<Phy>::onMessageReceived(PDMessage* message) {
     int messageId = message->messageId();
     PDMessageType type = message->type();
     PDSOPSequence sopSeq = message->sopSequence;
@@ -185,10 +169,10 @@ void PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::onMessageReceived(PDMessage* me
     if (rxMessageHead + MaxMessageSize > rxBuffer + sizeof(rxBuffer))
         rxMessageHead = rxBuffer;
 
-    PDPhy::prepareRead(reinterpret_cast<PDMessage*>(rxMessageHead));
+    phy->prepareRead(reinterpret_cast<PDMessage*>(rxMessageHead));
 
-    if (AUTO_GOOD_CRC) {
-                // notify that message has been received
+    if (isPhyGoodCrc) {
+        // notify that message has been received
         if (eventHandler != nullptr)
             eventHandler(PDControllerEvent(PDControllerEventType::messageReceived, message));
 
@@ -200,7 +184,7 @@ void PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::onMessageReceived(PDMessage* me
                 reportTransmissionFailed = true;
             }
 
-            Scheduler.cancelTask(noGoodCrcReceivedCallback);
+            Scheduler.cancelTask(TaskIdNoGoodCrcReceived);
             prepareNextTxMessage();
             lastMessage = nullptr;
         }
@@ -225,11 +209,11 @@ void PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::onMessageReceived(PDMessage* me
     }
 }
 
-template<bool AUTO_GOOD_CRC, bool AUTO_TX_RETRY>
-void PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::prepareNextTxMessage() {
+template <class Phy>
+void PDController<Phy>::prepareNextTxMessage() {
     txRetryCount = 0;
 
-    if (AUTO_GOOD_CRC) {
+    if (isPhyGoodCrc) {
         txMessageId += 1;
         if (txMessageId >= 8)
             txMessageId = 0;
@@ -249,30 +233,35 @@ void PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::prepareNextTxMessage() {
     txMessage = (PDMessage*)head;
 }
 
-template<bool AUTO_GOOD_CRC, bool AUTO_TX_RETRY>
-void PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::onError() {
+template <class Phy>
+void PDController<Phy>::onError() {
     log(PDLogEntryType::error);
 
     // re-setup same buffer for reception
-    PDPhy::prepareRead(reinterpret_cast<PDMessage*>(rxMessageHead));
+    phy->prepareRead(reinterpret_cast<PDMessage*>(rxMessageHead));
 }
 
-template<bool AUTO_GOOD_CRC, bool AUTO_TX_RETRY>
-void PDController<AUTO_GOOD_CRC, AUTO_TX_RETRY>::onVoltageChanged(int cc) {
+template <class Phy>
+void PDController<Phy>::onVoltageChanged(int cc) {
     ccPin = cc;
     log(cc == 0 ? PDLogEntryType::sinkSourceDisconnected : PDLogEntryType::sinkSourceConnected);
     if (eventHandler != nullptr)
         eventHandler(PDControllerEvent(cc == 0 ? PDControllerEventType::disconnected : PDControllerEventType::connected));
 }
 
+
+// template instantiation
+
 #if defined(ARDUINO_ARCH_ESP32)
 
-template class PDController<true, true>;
-PDController<true, true> PowerController{};
+#include "phy/ESP32FUSB302/PDPhyFUSB302.h"
+template class PDController<PDPhyFUSB302>;
 
-#else
+#elif defined(ARDUINO_ARCH_STM32)
 
-template class PDController<false, false>;
-PDController<false, false> PowerController{};
+#if defined(STM32G0xx) || defined(STM32G4xx)
+#include "phy/STM32UCPD/PDPhySTM32UCPD.h"
+template class PDController<PDPhySTM32UCPD>;
+#endif
 
 #endif

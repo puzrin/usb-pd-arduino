@@ -16,35 +16,53 @@
 
 #include "USBPowerDelivery.h"
 
+
+#if defined(ARDUINO_ARCH_ESP32)
+
+typedef PDPhyFUSB302 PDPhy;
+
+#elif defined(ARDUINO_ARCH_STM32)
+
+#if defined(STM32G0xx) || defined(STM32G4xx)
+typedef PDPhySTM32UCPD PDPhy;
+#endif
+
+#endif
+
+static PDPhy pdPhy;
+static PDController<PDPhy> powerController(&pdPhy);
+static PDSink<PDController<PDPhy>> sink(&powerController);
+
+
 void setup() {
   Serial.begin(115200);
-  PowerSink.start(handleEvent);
+  sink.start(handleEvent);
 
   // Uncomment if using X-NUCLEO-SNK1MK1 shield
   // NucleoSNK1MK1.init();
 }
 
 void loop() {
-  PowerSink.poll();
+  sink.poll();
 }
 
 void handleEvent(PDSinkEventType eventType) {
 
   if (eventType == PDSinkEventType::sourceCapabilitiesChanged) {
     // source capabilities have changed
-    if (PowerSink.isConnected()) {
+    if (sink.isConnected()) {
       // USB PD supply is connected
       requestVoltage();
   
     } else {
       // no supply or no USB PD capable supply is connected
-      PowerSink.requestPower(5000); // reset to 5V
+      sink.requestPower(5000); // reset to 5V
     }
 
   } else if (eventType == PDSinkEventType::voltageChanged) {
     // voltage has changed
-    if (PowerSink.activeVoltage != 0) {
-      Serial.printf("Voltage: %d mV @ %d mA (max)", PowerSink.activeVoltage, PowerSink.activeCurrent);
+    if (sink.activeVoltage != 0) {
+      Serial.printf("Voltage: %d mV @ %d mA (max)", sink.activeVoltage, sink.activeCurrent);
       Serial.println();
     } else {
       Serial.println("Disconnected");
@@ -53,25 +71,25 @@ void handleEvent(PDSinkEventType eventType) {
   } else if (eventType == PDSinkEventType::powerRejected) {
     // rare case: power supply rejected requested power
     Serial.println("Power request rejected");
-    Serial.printf("Voltage: %d mV @ %d mA (max)", PowerSink.activeVoltage, PowerSink.activeCurrent);
+    Serial.printf("Voltage: %d mV @ %d mA (max)", sink.activeVoltage, sink.activeCurrent);
   }
 }
 
 void requestVoltage() {
   // check if 12V is supported
-  for (int i = 0; i < PowerSink.numSourceCapabilities; i += 1) {
-    if (PowerSink.sourceCapabilities[i].minVoltage <= 12000
-        && PowerSink.sourceCapabilities[i].maxVoltage >= 12000) {
-      PowerSink.requestPower(12000);
+  for (int i = 0; i < sink.numSourceCapabilities; i += 1) {
+    if (sink.sourceCapabilities[i].minVoltage <= 12000
+        && sink.sourceCapabilities[i].maxVoltage >= 12000) {
+      sink.requestPower(12000);
       return;
     }
   }
 
   // check if 15V is supported
-  for (int i = 0; i < PowerSink.numSourceCapabilities; i += 1) {
-    if (PowerSink.sourceCapabilities[i].minVoltage <= 15000
-        && PowerSink.sourceCapabilities[i].maxVoltage >= 15000) {
-      PowerSink.requestPower(15000);
+  for (int i = 0; i < sink.numSourceCapabilities; i += 1) {
+    if (sink.sourceCapabilities[i].minVoltage <= 15000
+        && sink.sourceCapabilities[i].maxVoltage >= 15000) {
+      sink.requestPower(15000);
       return;
     }
   }

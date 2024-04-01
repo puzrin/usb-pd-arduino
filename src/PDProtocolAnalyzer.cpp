@@ -65,14 +65,14 @@ static const char* const SOPSequenceNames[] = {
 };
 
 
-USBPDProtocolAnalyzer PDProtocolAnalyzer;
-
-USBPDProtocolAnalyzer::USBPDProtocolAnalyzer() {
+template <class Controller>
+PDProtocolAnalyzer<Controller>::PDProtocolAnalyzer(Controller* controller) : controller(controller) {
     memset(&capabilities, 0, sizeof(capabilities));
 }
 
-void USBPDProtocolAnalyzer::poll() {
-    auto logEntry = PowerController.popLogEntry();
+template <class Controller>
+void PDProtocolAnalyzer<Controller>::poll() {
+    auto logEntry = controller->popLogEntry();
     if (logEntry == nullptr)
         return;
 
@@ -84,7 +84,7 @@ void USBPDProtocolAnalyzer::poll() {
         printMessage(logEntry->message);
         break;
     case PDLogEntryType::sinkSourceConnected:
-        Serial.printf("Connected: CC%d", PowerController.ccPin);
+        Serial.printf("Connected: CC%d", controller->ccPin);
         Serial.println();
         break;
     case PDLogEntryType::sinkSourceDisconnected:
@@ -112,7 +112,8 @@ void USBPDProtocolAnalyzer::poll() {
     }
 }
 
-void USBPDProtocolAnalyzer::printMessage(const PDMessage* message) {
+template <class Controller>
+void PDProtocolAnalyzer<Controller>::printMessage(const PDMessage* message) {
     Serial.printf("CC%d %-5s %-7s %-20s %d  %04x",
             message->cc, getSOPSequenceName(message->sopSequence),
             getSender(message),getMessageName(message->type()),
@@ -138,7 +139,8 @@ void USBPDProtocolAnalyzer::printMessage(const PDMessage* message) {
     }
 }
 
-void USBPDProtocolAnalyzer::printCapabilitiesDetails(const PDMessage* message) {
+template <class Controller>
+void PDProtocolAnalyzer<Controller>::printCapabilitiesDetails(const PDMessage* message) {
     auto numbObjects = message->numObjects();
 
     // remember source capabilities
@@ -192,7 +194,8 @@ void USBPDProtocolAnalyzer::printCapabilitiesDetails(const PDMessage* message) {
     } 
 }
 
-void USBPDProtocolAnalyzer::printRequestDetails(const PDMessage* message) {
+template <class Controller>
+void PDProtocolAnalyzer<Controller>::printRequestDetails(const PDMessage* message) {
     auto object = message->objects[0];
     int objPos = (object >> 28) & 0x07;
     bool giveBack = (object & (1 << 27)) != 0;
@@ -222,7 +225,8 @@ void USBPDProtocolAnalyzer::printRequestDetails(const PDMessage* message) {
     Serial.println();
 }
 
-const char* USBPDProtocolAnalyzer::getMessageName(PDMessageType messageType) {
+template <class Controller>
+const char* PDProtocolAnalyzer<Controller>::getMessageName(PDMessageType messageType) {
     unsigned int index = (unsigned int)messageType;
     const char* name = nullptr;
     if (index < 0x80) {
@@ -238,7 +242,8 @@ const char* USBPDProtocolAnalyzer::getMessageName(PDMessageType messageType) {
     return name != nullptr ? name : "<unknown>";
 }
 
-const char* USBPDProtocolAnalyzer::getSOPSequenceName(PDSOPSequence sequence) {
+template <class Controller>
+const char* PDProtocolAnalyzer<Controller>::getSOPSequenceName(PDSOPSequence sequence) {
     constexpr unsigned int arraySize = sizeof(SOPSequenceNames) / sizeof(SOPSequenceNames[0]);
     unsigned int index = (unsigned int)sequence;
     if (index >= arraySize)
@@ -246,7 +251,8 @@ const char* USBPDProtocolAnalyzer::getSOPSequenceName(PDSOPSequence sequence) {
     return SOPSequenceNames[index];
 }
 
-const char* USBPDProtocolAnalyzer::getSender(const PDMessage* message) {
+template <class Controller>
+const char* PDProtocolAnalyzer<Controller>::getSender(const PDMessage* message) {
     auto seq = message->sopSequence;
     if (seq == PDSOPSequence::sop) {
         return (message->header & 0x0100) != 0 ? "Source" : "Sink";
@@ -256,3 +262,17 @@ const char* USBPDProtocolAnalyzer::getSender(const PDMessage* message) {
 
     return "";
 }
+
+#if defined(ARDUINO_ARCH_ESP32)
+
+#include "phy/ESP32FUSB302/PDPhyFUSB302.h"
+template class PDProtocolAnalyzer<PDController<PDPhyFUSB302>>;
+
+#elif defined(ARDUINO_ARCH_STM32)
+
+#if defined(STM32G0xx) || defined(STM32G4xx)
+#include "phy/STM32UCPD/PDPhySTM32UCPD.h"
+template class PDProtocolAnalyzer<PDController<PDPhySTM32UCPD>>;
+#endif
+
+#endif

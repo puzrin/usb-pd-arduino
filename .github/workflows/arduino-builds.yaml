@@ -11,16 +11,10 @@ jobs:
         include:
           - board: STMicroelectronics:stm32:Nucleo_32
             board_options: pnum=NUCLEO_G431KB
-          - board: STMicroelectronics:stm32:Nucleo_32
-            board_options: pnum=NUCLEO_L432KC
           - board: STMicroelectronics:stm32:Nucleo_64
             board_options: pnum=NUCLEO_G071RB
           - board: STMicroelectronics:stm32:Nucleo_64
             board_options: pnum=NUCLEO_G474RE
-          - board: STMicroelectronics:stm32:GenF1
-            board_options: pnum=BLACKPILL_F103C8
-          - board: STMicroelectronics:stm32:GenF4
-            board_options: pnum=BLACKPILL_F401CC
           - board: esp32:esp32:esp32s3
             board_options: ''
 
@@ -35,9 +29,6 @@ jobs:
       - name: Install ESP32 core
         run: arduino-cli core install esp32:esp32 --additional-urls 'https://espressif.github.io/arduino-esp32/package_esp32_index.json'
         if: ${{ startsWith(matrix.board, 'esp32') }}
-      - name: Build ProtocolAnalyzer
-        if: ${{ ! startsWith(matrix.board, 'esp32') }}
-        run: arduino-cli compile --library . --warnings all -b ${{ matrix.board }} --board-options "${{ matrix.board_options }}" examples/ProtocolAnalyzer/ProtocolAnalyzer.ino
       - name: Build ListCapabilities
         run: arduino-cli compile --library . --warnings all -b ${{ matrix.board }} --board-options "${{ matrix.board_options }}" examples/ListCapabilities/ListCapabilities.ino
       - name: Build TriggerBoard

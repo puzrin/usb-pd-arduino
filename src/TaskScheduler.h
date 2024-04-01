@@ -19,7 +19,7 @@
 /**
  * @brief Scheduler to execute tasks in the future.
  * 
- * A task is represented by a function that will be called.
+ * A task is represented by a function that will be called and a task ID.
  * 
  * Time for scheduling is specified in µs. The maximum delay
  * into the future is slightly more than 1 hour. 
@@ -31,30 +31,36 @@ struct TaskScheduler {
      * @brief Function type used for task.
      * 
      */
-    typedef void (*TaskFunction)();
+    typedef std::function<void(void)> TaskFunction;
 
     /**
      * @brief Schedules a task to be executed after a delay.
      * 
-     * @param task task to execute
+     * The task ID can be assigned freely. It can be used to cancel the task.
+     * 
+     * @param taskId task ID
+     * @param taskFunction function to execute when scheduled time has come
      * @param delay delay, in µs
      */
-    ARDUINO_ISR_ATTR void scheduleTaskAfter(TaskFunction task, uint32_t delay);
+    ARDUINO_ISR_ATTR void scheduleTaskAfter(int taskId, TaskFunction taskFunction, uint32_t delay);
 
     /**
      * @brief Schedules a task to be executed at a time in the future.
      * 
-     * @param task task to execute
+     * The task ID can be assigned freely. It can be used to cancel the task.
+     * 
+     * @param taskId task ID
+     * @param taskFunction function to execute when scheduled time has come
      * @param time time, in µs, same base as `micros()`
      */
-    ARDUINO_ISR_ATTR void scheduleTaskAt(TaskFunction task, uint32_t time);
+    ARDUINO_ISR_ATTR void scheduleTaskAt(int taskId, TaskFunction taskFunction, uint32_t time);
 
     /**
      * @brief Cancels the execution of a previously scheduled task.
      * 
-     * @param task task to cancel 
+     * @param taskId ID of task to cancel 
      */
-    ARDUINO_ISR_ATTR void cancelTask(TaskFunction task);
+    ARDUINO_ISR_ATTR void cancelTask(int taskId);
 
     /**
      * @brief Cancels the execution of all scheduled tasks.
@@ -62,9 +68,14 @@ struct TaskScheduler {
     ARDUINO_ISR_ATTR void cancelAllTasks();
 
 private:
+    struct Task {
+        uint32_t scheduledTime;
+        int id;
+        TaskFunction function;
+    };
+
     int numScheduledTasks;
-    uint32_t scheduledTimes[10];
-    TaskFunction scheduledFunctions[10];
+    Task scheduledTasks[10];
 
     void start();
     ARDUINO_ISR_ATTR void pause();

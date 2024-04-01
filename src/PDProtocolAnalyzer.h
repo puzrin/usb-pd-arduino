@@ -10,8 +10,9 @@
 
 #include "PDMessage.h"
 
-struct USBPDProtocolAnalyzer {
-    USBPDProtocolAnalyzer();
+template <class Controller>
+struct PDProtocolAnalyzer {
+    PDProtocolAnalyzer(Controller* controller);
     void poll();
 
 private:
@@ -22,7 +23,6 @@ private:
     const char* getSOPSequenceName(PDSOPSequence sequence);
     const char* getSender(const PDMessage* message);
 
+    Controller* controller;
     PDMessage capabilities;
 };
-
-extern USBPDProtocolAnalyzer PDProtocolAnalyzer;

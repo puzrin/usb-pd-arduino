@@ -70,15 +70,15 @@ void TaskScheduler::start() {
 #endif
 }
 
-void TaskScheduler::scheduleTaskAfter(TaskFunction task, uint32_t delay) {
-    scheduleTaskAt(task, micros() + delay);
+void TaskScheduler::scheduleTaskAfter(int taskId, TaskFunction taskFunction, uint32_t delay) {
+    scheduleTaskAt(taskId, taskFunction, micros() + delay);
 }
 
-void TaskScheduler::scheduleTaskAt(TaskFunction task, uint32_t time) {
+void TaskScheduler::scheduleTaskAt(int taskId, TaskFunction taskFunction, uint32_t time) {
     if (numScheduledTasks == -1)
         start();
 
-    if (numScheduledTasks >= static_cast<int>(_countof(scheduledTimes)))
+    if (numScheduledTasks >= static_cast<int>(_countof(scheduledTasks)))
         __builtin_trap();
 
     pause();
@@ -89,29 +89,26 @@ void TaskScheduler::scheduleTaskAt(TaskFunction task, uint32_t time) {
     int index = 0;
     uint32_t delay = timeDifference(time, now);
     while (index < numScheduledTasks) {
-        if (delay < timeDifference(scheduledTimes[index], now))
+        if (delay < timeDifference(scheduledTasks[index].scheduledTime, now))
             break;
         index += 1;
     }
 
-    // move elements after insertion point if needed
-    if (index < numScheduledTasks) {
-        memmove(&scheduledTimes[index + 1], &scheduledTimes[index],
-                sizeof(scheduledTimes[0]) * (numScheduledTasks - index));
-        memmove(&scheduledFunctions[index + 1], &scheduledFunctions[index],
-                sizeof(scheduledFunctions[0]) * (numScheduledTasks - index));
-    }
+    // move elements after insertion point
+    for (int i = numScheduledTasks; i > index; i -= 1)
+        scheduledTasks[i] = scheduledTasks[i - 1];
 
     numScheduledTasks += 1;
 
     // set values
-    scheduledTimes[index] = time;
-    scheduledFunctions[index] = task;
+    scheduledTasks[index].scheduledTime = time;
+    scheduledTasks[index].id = taskId;
+    scheduledTasks[index].function = taskFunction;
 
     checkPendingTasks();
 }
 
-void TaskScheduler::cancelTask(TaskFunction task) {
+void TaskScheduler::cancelTask(int taskId) {
     if (numScheduledTasks == -1)
         return;
 
@@ -120,20 +117,16 @@ void TaskScheduler::cancelTask(TaskFunction task) {
     // find task to remove
     int index;
     for (index = 0; index < numScheduledTasks; index += 1) {
-        if (scheduledFunctions[index] == task)
+        if (scheduledTasks[index].id == taskId)
             break;
     }
 
     if (index < numScheduledTasks) {
         numScheduledTasks -= 1;
 
-        // move remaining elements if needed
-        if (index < numScheduledTasks) {
-            memmove(&scheduledTimes[index], &scheduledTimes[index + 1],
-                    sizeof(scheduledTimes[0]) * (numScheduledTasks - index));
-            memmove(&scheduledFunctions[index], &scheduledFunctions[index + 1],
-                    sizeof(scheduledFunctions[0]) * (numScheduledTasks - index));
-        }
+        // move remaining elements
+        for (int i = index; i < numScheduledTasks; i += 1)
+            scheduledTasks[i] = scheduledTasks[i + 1];
     }
 
     checkPendingTasks();
@@ -159,25 +152,21 @@ void TaskScheduler::checkPendingTasks() {
             return; // no pending tasks
 
         now = micros();
-        if (!hasExpired(scheduledTimes[0], now))
+        if (!hasExpired(scheduledTasks[0].scheduledTime, now))
             break; // next task has not yet expired
 
-        TaskFunction task = scheduledFunctions[0];
+        TaskFunction taskFunction = scheduledTasks[0].function;
         numScheduledTasks -= 1;
 
         // move remaining elements if needed
-        if (numScheduledTasks > 0) {
-            memmove(&scheduledTimes[0], &scheduledTimes[1],
-                sizeof(scheduledTimes[0]) * numScheduledTasks);
-            memmove(&scheduledFunctions[0], &scheduledFunctions[1],
-                sizeof(scheduledFunctions[0]) * numScheduledTasks);
-        }
+        for (int i = 0; i < numScheduledTasks; i += 1)
+            scheduledTasks[i] = scheduledTasks[i + 1];
 
         // execute task
-        task();
+        taskFunction();
     }
 
-    uint32_t delayToFirstTask = timeDifference(scheduledTimes[0], micros());
+    uint32_t delayToFirstTask = timeDifference(scheduledTasks[0].scheduledTime, micros());
 
     // restart timer
 #if defined(ARDUINO_ARCH_STM32)

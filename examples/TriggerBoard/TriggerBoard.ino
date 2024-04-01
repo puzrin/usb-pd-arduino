@@ -17,10 +17,27 @@
 
 #include "USBPowerDelivery.h"
 
+#if defined(ARDUINO_ARCH_ESP32)
+
+typedef PDPhyFUSB302 PDPhy;
+
+#elif defined(ARDUINO_ARCH_STM32)
+
+#if defined(STM32G0xx) || defined(STM32G4xx)
+typedef PDPhySTM32UCPD PDPhy;
+#endif
+
+#endif
+
+static PDPhy pdPhy;
+static PDController<PDPhy> powerController(&pdPhy);
+static PDSink<PDController<PDPhy>> sink(&powerController);
+
+
 void setup() {
-  PowerSink.start();
+  sink.start();
   // request 12V @ 1A once power supply is connected
-  PowerSink.requestPower(12000, 1000);
+  sink.requestPower(12000, 1000);
 
   // Uncomment if using X-NUCLEO-SNK1MK1 shield
   // NucleoSNK1MK1.init();

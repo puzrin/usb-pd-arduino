@@ -10,9 +10,9 @@
 
 #pragma once
 
-#include "PDController.h"
-#include "PDSourceCapability.h"
 #include <functional>
+#include "PDSourceCapability.h"
+#include "PDController.h"
 
 enum class PDSinkEventType {
     sourceCapabilitiesChanged,
@@ -25,9 +25,10 @@ enum class PDSinkEventType {
  *
  * Communicates with a power source (power supply) to control the voltage
  * and current being supplied.
- *
- * A single global instance of this class exists. It is called 'PowerSink'.
+ * 
+ * @tparam Controller PD controller class
  */
+template <class Controller>
 class PDSink {
 public:
     /**
@@ -43,9 +44,27 @@ public:
      * interacts with for the USB-PD communication), or self-powered (MCU has
      * power supply separate from the one it interacts with).
      * 
-     * @param busPowered 'true' if power sink is bus powered, 'false' otherwise
+     * The specified PD controller instance talks to actual hardware, be it an internal
+     * USB PD peripheral, an external USB PD controller chip or a software implementation
+     * using comparators and bit banging.
+     * 
+     * @param controller PD controller
      */
-    PDSink(bool busPowered = false);
+    PDSink(Controller* controller);
+
+    /**
+     * @brief Set if this sink is bus powered.
+     * 
+     * For correct voltage reporting, the power sink needs to know if it is
+     * bus powered (MCU is powered from the same USB connection that it
+     * interacts with for the USB-PD communication), or self-powered (MCU has
+     * power supply separate from the one it interacts with).
+     * 
+     * If not set, the sink defaults to bus powered.
+     * 
+     * @param busPowered indicates if the sink is bus powered
+     */
+    void setBusPowered(bool busPowered);
 
     /**
      * Starts USB Power Delivery as a power sink.
@@ -65,7 +84,9 @@ public:
     void poll();
 
     /// Indicates if the sink is connected to a USB PD power supply
-    bool isConnected();
+    bool isConnected() {
+        return numSourceCapabilities > 0;
+    }
 
     /**
      * Requests a new voltage and optionally a maximum current.
@@ -111,9 +132,12 @@ private:
         controllerBusy
     };
 
-    bool isBusPowered;
+    static constexpr int TaskIdRequestPPS = 1001;
 
+    Controller* controller;
     EventCallbackFunction eventCallback;
+
+    bool isBusPowered;
     int ppsIndex;
     int desiredVoltage;
     int desiredCurrent;
@@ -126,17 +150,12 @@ private:
     bool flagPowerRejected;
 
     ErrorCode requestPowerCore(int voltage, int maxCurrent);
+
     void handleEvent(const PDControllerEvent& event);
+    void reset(bool connected);
 
     void onMessageReceived(const PDMessage* message);
     void onSourceCapabilities(const PDMessage* message);
     void onPsReady();
-
-    void reset(bool connected);
-
     void onRerequestPPS();
-    static void rerequestPPSCallback();
 };
-
-/// Global object for controlling USB power sink
-extern class PDSink PowerSink;

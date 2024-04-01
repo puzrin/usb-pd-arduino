@@ -10,6 +10,7 @@
 
 #include <functional>
 #include "PDMessage.h"
+#include "RingBuffer.h"
 
 
 /// Power Delivery log entry type
@@ -94,31 +95,38 @@ struct PDControllerEvent {
  * As USB PD communication is timing sensitive, most code will run as part of
  * an interrupt handler.
  * 
- * The template parameters control if the controller needs to send GoodCRC messages
- * and/or retry transmissions that have not been acknowledged, or if it is
- * handled automatically by the underlying PHY.
- * 
- * @tparam AUTO_GOOD_CRC 'true' if PHY sends GoodCRC messages automatically, 'false' otherwise
- * @tparam AUTO_TX_RETRY 'true' if PHY retries transmissions automatically if no GoodCRC is received, 'false' otherwise
+ * @tparam Phy Physical layer implementation (e.g. PDPhySTM32F4)
  */
-template<bool AUTO_GOOD_CRC, bool AUTO_TX_RETRY>
+template <class Phy>
 class PDController {
 public:
     /// Event handler function to be called when an event occurs (called from interrupt)
     typedef std::function<void(const PDControllerEvent& event)> EventHandlerFunction;
 
-    /// Constructor
-    PDController();
+    /**
+     * @brief Construct a new PDController object
+     * 
+     * @param phy Physical layer instance
+     */
+    PDController(Phy* phy);
 
     /**
-     * @brief Starts the controller as DFP or UFP
+     * @brief Set the GoodCRC handling.
+     * 
+     * The controller usually takes care of sending GoodCRC messages for received messages,
+     * and retrying to send messages when no GoodCRC is received. If the PHY already handles
+     * it, the controller can be configured to not handle it.
+     * 
+     * @param phyGoodCrc 'true' if PHY sends GoodCRC messages automatically and retransmits if no GoodCRC is received, 'false' otherwise
+     */
+    void setGoodCrcHandling(bool phyGoodCrc);
+
+    /**
+     * @brief Starts the controller as a source
      * 
      * @param handler handler to be called when an event occurs
      */
     void startController(EventHandlerFunction handler);
-
-    /// Starts the controller for monitoring passively (no USB PD interaction)
-    void startMonitor();
 
     /**
      * Takes oldest log entry from queue (if any is available)
@@ -155,17 +163,20 @@ private:
     static constexpr int paramNRetryCount = 2;
     static constexpr int paramCRCReceiveTimer = 1200; // in µs
 
-    bool isMonitorOnly;
+    static constexpr int TaskIdNoGoodCrcReceived = 801;
+
     EventHandlerFunction eventHandler;
+    Phy* phy;
+    bool isMonitorOnly;
+    bool isPhyGoodCrc;
 
     uint8_t rxBuffer[RxBufferLength] __attribute__((aligned(4)));
     uint8_t* volatile rxMessageHead;
     uint8_t txBuffer[TxBufferLength] __attribute__((aligned(4)));
     PDMessage* volatile txMessage;
 
-    PDLogEntry logEntries[LogSize];
-    volatile uint32_t logHead;
-    volatile uint32_t logTail;
+    RingBuffer<PDLogEntry, LogSize> logEntries;
+    PDLogEntry currentLogEntry;
 
     int txMessageId;
     int txRetryCount;
@@ -192,33 +203,5 @@ private:
     void onMessageReceived(PDMessage* message);
     void onReset(PDSOPSequence seq);
 
-    static void noGoodCrcReceivedCallback();
-    
-    friend struct PDPhy;
-    friend struct PDPhySTM32F1;
-    friend struct PDPhySTM32F4;
-    friend struct PDPhySTM32L4;
-    friend struct PDPhySTM32UCPD;
-    friend struct PDPhyFUSB302;
-    friend struct PDMessageDecoder;
+    friend Phy;
 };
-
-#if defined(ARDUINO_ARCH_ESP32)
-
-/**
- * @brief USB Power Delivery Controller.
- * 
- * Global instance implementing the USB PD communication.
- */
-extern PDController<true, true> PowerController;
-
-#else
-
-/**
- * @brief USB Power Delivery Controller.
- * 
- * Global instance implementing the USB PD communication.
- */
-extern PDController<false, false> PowerController;
-
-#endif

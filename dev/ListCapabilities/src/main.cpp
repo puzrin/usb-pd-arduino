@@ -14,9 +14,26 @@
 #include <Wire.h>
 #include "USBPowerDelivery.h"
 
+#if defined(ARDUINO_ARCH_ESP32)
+
+typedef PDPhyFUSB302 PDPhy;
+
+#elif defined(ARDUINO_ARCH_STM32)
+
+#if defined(STM32G0xx) || defined(STM32G4xx)
+typedef PDPhySTM32UCPD PDPhy;
+#endif
+
+#endif
+
+
 static void handleEvent(PDSinkEventType eventType);
 static void listCapabilities();
 static const char* getSupplyTypeName(PDSupplyType type);
+
+static PDPhy pdPhy;
+static PDController<PDPhy> powerController(&pdPhy);
+static PDSink<PDController<PDPhy>> sink(&powerController);
 
 void setup() {
     Serial.begin(115200);
@@ -28,7 +45,7 @@ void setup() {
         Wire.begin(SDA, SCL, 1000000);
     #endif
 
-    PowerSink.start(handleEvent);
+    sink.start(handleEvent);
 
     #if defined(SNK1M1_SHIELD)
         NucleoSNK1MK1.init();
@@ -36,11 +53,11 @@ void setup() {
 }
 
 void loop() {
-    PowerSink.poll();
+    sink.poll();
 }
 
 void handleEvent(PDSinkEventType eventType) {
-    if (eventType == PDSinkEventType::sourceCapabilitiesChanged && PowerSink.isConnected())
+    if (eventType == PDSinkEventType::sourceCapabilitiesChanged && sink.isConnected())
         listCapabilities();
 }
 
@@ -48,8 +65,8 @@ void listCapabilities() {
     Serial.println("USB PD capabilities:");
     Serial.println("__Type_________Vmin____Vmax____Imax");
 
-    for (int i = 0; i < PowerSink.numSourceCapabilities; i += 1) {
-        auto cap = PowerSink.sourceCapabilities[i];
+    for (int i = 0; i < sink.numSourceCapabilities; i += 1) {
+        auto cap = sink.sourceCapabilities[i];
         Serial.printf("  %-9s  %6d  %6d  %6d", getSupplyTypeName(cap.supplyType), cap.minVoltage, cap.maxVoltage, cap.maxCurrent);
         Serial.println();
     }
