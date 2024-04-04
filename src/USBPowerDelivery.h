@@ -16,6 +16,16 @@
 #include "PDSink.h"
 #include "PDProtocolAnalyzer.h"
 
+
+#define USB_PD_PHY_FUSB302 100
+// Use UCPD1 only (instance 1)
+#define USB_PD_PHY_UCPD1 201
+// Use UCPD2 only (instance 2)
+#define USB_PD_PHY_UCPD2 202
+// Use UCPD1 and UCPD2 (instance 1 and 2)
+#define USB_PD_PHY_UCPD1_2 203
+
+
 #if defined(ARDUINO_ARCH_ESP32)
 
 #include "phy/ESP32FUSB302/PDPhyFUSB302.h"
