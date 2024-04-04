@@ -15,17 +15,20 @@
 
 #include "USBPowerDelivery.h"
 
+
 #if defined(ARDUINO_ARCH_ESP32)
 
 typedef PDPhyFUSB302 PDPhy;
+#define USB_PD_PHY USB_PD_PHY_FUSB302
 
 #elif defined(ARDUINO_ARCH_STM32)
 
-#if defined(STM32G0xx) || defined(STM32G4xx)
 typedef PDPhySTM32UCPD PDPhy;
-#endif
+#define USB_PD_PHY USB_PD_PHY_UCPD1
 
 #endif
+
+#include "USBPowerDeliveryCode.h"
 
 
 static PDPhy pdPhy;
@@ -35,6 +38,16 @@ static PDSink<PDController<PDPhy>> sink(&powerController);
 
 void setup() {
   Serial.begin(115200);
+
+  // configure PHY (if needed)
+  #if defined(ARDUINO_ARCH_ESP32)
+    Wire.begin(SDA, SCL, 1000000);
+    pdPhy.setTwoWire(&Wire);
+    pdPhy.setInterruptPin(10);
+  #elif defined(ARDUINO_ARCH_STM32)
+    pdPhy.setInstance(1);
+  #endif
+
   sink.start(handleEvent);
 
   // Uncomment if using X-NUCLEO-SNK1MK1 shield

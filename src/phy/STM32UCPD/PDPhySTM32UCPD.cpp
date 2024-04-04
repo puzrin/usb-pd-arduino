@@ -19,18 +19,26 @@
 
 
 #if defined(STM32G4xx)
+const PDPhySTM32UCPD::Peripheral PDPhySTM32UCPD::peripherals[] = {
     // STM32G4 family: CC1 -> PB6, CC2 -> PB4
-    #define GPIO_CC1 GPIOB
-    #define PIN_CC1 LL_GPIO_PIN_6
-    #define ARDUINO_PIN_CC1 PB6
-    #define GPIO_CC2 GPIOB
-    #define PIN_CC2 LL_GPIO_PIN_4
-    #define ARDUINO_PIN_CC2 PB4
-    #define DMA_RX DMA1
-    #define DMA_CHANNEL_RX LL_DMA_CHANNEL_1
-    #define DMA_TX DMA1
-    #define DMA_CHANNEL_TX LL_DMA_CHANNEL_2
-    #define UCPD_IRQ UCPD1_IRQn
+    {
+        .ucpd = UCPD1,
+        .gpioCC1 = GPIOB,
+        .gpioCC2 = GPIOB,
+        .pinCC1 = LL_GPIO_PIN_6,
+        .pinCC2 = LL_GPIO_PIN_4,
+        .arduinoPinCC1 = PB6,
+        .arduinoPinCC2 = PB4,
+        .dmaRx = DMA1,
+        .dmaTx = DMA1,
+        .dmaChannelRx = LL_DMA_CHANNEL_1,
+        .dmaRequestRx = LL_DMAMUX_REQ_UCPD1_RX,
+        .dmaChannelTx = LL_DMA_CHANNEL_2,
+        .dmaRequestTx = LL_DMAMUX_REQ_UCPD1_TX,
+        .ucpdIrq = UCPD1_IRQn,
+        .dbatt = 0,
+    }
+};
 
 #elif defined(STM32G0xx)
 
@@ -73,34 +81,9 @@ const PDPhySTM32UCPD::Peripheral PDPhySTM32UCPD::peripherals[] = {
     }
 };
 
-PDPhySTM32UCPD* PDPhySTM32UCPD::instances[] = {0};
-
-    // #define GPIO_CC1 GPIOA
-    // #define PIN_CC1 LL_GPIO_PIN_8
-    // #define ARDUINO_PIN_CC1 PA8
-    // #define GPIO_CC2 GPIOB
-    // #define PIN_CC2 LL_GPIO_PIN_15
-    // #define ARDUINO_PIN_CC2 PB15
-    // #define DMA_RX DMA1
-    // #define DMA_CHANNEL_RX LL_DMA_CHANNEL_1
-    // #define DMA_TX DMA1
-    // #define DMA_CHANNEL_TX LL_DMA_CHANNEL_2
-    // #define UCPD_IRQ UCPD1_2_IRQn
-
-    // #define GPIO_CC1 GPIOD
-    // #define PIN_CC1 LL_GPIO_PIN_0
-    // #define ARDUINO_PIN_CC1 PD0
-    // #define GPIO_CC2 GPIOD
-    // #define PIN_CC2 LL_GPIO_PIN_2
-    // #define ARDUINO_PIN_CC2 PD2
-    // #define DMA_RX DMA1
-    // #define DMA_CHANNEL_RX LL_DMA_CHANNEL_1
-    // #define DMA_TX DMA1
-    // #define DMA_CHANNEL_TX LL_DMA_CHANNEL_2
-    // #define UCPD_IRQ UCPD1_2_IRQn
-
 #endif
 
+PDPhySTM32UCPD* PDPhySTM32UCPD::instances[] = {0};
 
 PDPhySTM32UCPD::PDPhySTM32UCPD() : controller(nullptr), rxMessage(nullptr), ccActive(0), instance(0) {}
 
