@@ -25,10 +25,7 @@ enum class PDSinkEventType {
  *
  * Communicates with a power source (power supply) to control the voltage
  * and current being supplied.
- * 
- * @tparam Controller PD controller class
  */
-template <class Controller>
 class PDSink {
 public:
     /**
@@ -50,7 +47,7 @@ public:
      * 
      * @param controller PD controller
      */
-    PDSink(Controller* controller);
+    PDSink(PDController* controller);
 
     /**
      * @brief Set if this sink is bus powered.
@@ -134,7 +131,7 @@ private:
 
     static constexpr int TaskIdRequestPPS = 1001;
 
-    Controller* controller;
+    PDController* controller;
     EventCallbackFunction eventCallback;
 
     bool isBusPowered;

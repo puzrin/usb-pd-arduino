@@ -10,7 +10,7 @@
 
 #if defined(STM32G0xx) || defined(STM32G4xx)
 
-#include "PDController.h"
+#include "PDPhy.h"
 
 extern "C" void UCPD1_IRQHandler();
 extern "C" void UCPD1_2_IRQHandler();
@@ -19,7 +19,8 @@ extern "C" void UCPD1_2_IRQHandler();
  * @brief Physical layer for USB PD communication.
  *
  */
-struct PDPhySTM32UCPD {
+class PDPhySTM32UCPD : public PDPhy {
+public:
 
     /**
      * @brief Creates a new PDPhySTM32UCPD instance
@@ -46,7 +47,7 @@ struct PDPhySTM32UCPD {
      * 
      * @param controller the PD controller to be notified about events
      */
-    void startSink(PDController<PDPhySTM32UCPD>* controller);
+    void startSink(PDController* controller);
 
     /**
      * @brief Sets the message and buffer to be used for the next incoming message.
@@ -97,7 +98,7 @@ private:
     static PDPhySTM32UCPD* instances[NumInstances];
 
     const Peripheral* peripheral;
-    PDController<PDPhySTM32UCPD>* controller;
+    PDController* controller;
     PDMessage* rxMessage;
     int ccActive;
     int instance;
@@ -110,7 +111,6 @@ private:
 
     static PDSOPSequence mapSOPSequence(uint32_t orderedSet);
 
-    friend PDController<PDPhySTM32UCPD>;
     friend void UCPD1_IRQHandler();
     friend void UCPD1_2_IRQHandler();
 

@@ -9,7 +9,7 @@
 #pragma once
 
 #include <functional>
-#include "PDMessage.h"
+#include "PDPhy.h"
 #include "RingBuffer.h"
 
 
@@ -94,10 +94,7 @@ struct PDControllerEvent {
  *
  * As USB PD communication is timing sensitive, most code will run as part of
  * an interrupt handler.
- * 
- * @tparam Phy Physical layer implementation (e.g. PDPhySTM32F4)
  */
-template <class Phy>
 class PDController {
 public:
     /// Event handler function to be called when an event occurs (called from interrupt)
@@ -108,7 +105,7 @@ public:
      * 
      * @param phy Physical layer instance
      */
-    PDController(Phy* phy);
+    PDController(PDPhy* phy);
 
     /**
      * @brief Set the GoodCRC handling.
@@ -154,6 +151,24 @@ public:
     /// Starts sending a data message
     bool sendDataMessage(PDMessageType messageType, int numObjects, const uint32_t* objects);
 
+    // --- handlers called from PDPhy IRQ handlers
+
+    /// Called when the voltage has changed
+    /// @param cc indicates the active CC line (1 or 2), or 0 if no USB PD communication is active
+    void onVoltageChanged(int cc);
+
+    /// Called when an error has occurred
+    void onError();
+
+    /// Called when a message has been transmitted
+    void onMessageTransmitted(bool successful);
+
+    /// Called when a message has been received
+    void onMessageReceived(PDMessage* message);
+
+    /// Called when a reset has been detected (hard reset, soft reset etc.) 
+    void onReset(PDSOPSequence seq);
+
 private:
     static constexpr int LogSize = 32;
     static constexpr int RxBufferLength = 512;
@@ -166,7 +181,7 @@ private:
     static constexpr int TaskIdNoGoodCrcReceived = 801;
 
     EventHandlerFunction eventHandler;
-    Phy* phy;
+    PDPhy* phy;
     bool isMonitorOnly;
     bool isPhyGoodCrc;
 
@@ -195,13 +210,4 @@ private:
     void prepareNextTxMessage();
 
     void onNoGoodCrcReceived();
-
-    // handlers called from PhyPD IRQ handler
-    void onVoltageChanged(int cc);
-    void onError();
-    void onMessageTransmitted(bool successful);
-    void onMessageReceived(PDMessage* message);
-    void onReset(PDSOPSequence seq);
-
-    friend Phy;
 };

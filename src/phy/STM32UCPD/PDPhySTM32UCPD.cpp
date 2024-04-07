@@ -87,7 +87,7 @@ PDPhySTM32UCPD* PDPhySTM32UCPD::instances[] = {0};
 
 PDPhySTM32UCPD::PDPhySTM32UCPD() : controller(nullptr), rxMessage(nullptr), ccActive(0), instance(0) {}
 
-void PDPhySTM32UCPD::startSink(PDController<PDPhySTM32UCPD>* controller) {
+void PDPhySTM32UCPD::startSink(PDController* controller) {
     this->controller = controller;
     init(false);
 }

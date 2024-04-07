@@ -17,12 +17,12 @@
 
 #if defined(ARDUINO_ARCH_ESP32)
 
-typedef PDPhyFUSB302 PDPhy;
+typedef PDPhyFUSB302 Phy;
 #define USB_PD_PHY USB_PD_PHY_FUSB302
 
 #elif defined(ARDUINO_ARCH_STM32)
 
-typedef PDPhySTM32UCPD PDPhy;
+typedef PDPhySTM32UCPD Phy;
 #define USB_PD_PHY USB_PD_PHY_UCPD1
 
 #endif
@@ -38,10 +38,10 @@ static bool isUSBPDSource = false;
 static uint32_t nextVoltageChangeTime = 0;
 static int voltageIndex = 0;
 
-static PDPhy pdPhy;
-static PDController<PDPhy> powerController(&pdPhy);
-static PDProtocolAnalyzer<PDController<PDPhy>> protocolAnalyzer(&powerController);
-static PDSink<PDController<PDPhy>> sink(&powerController);
+static Phy pdPhy;
+static PDController powerController(&pdPhy);
+static PDProtocolAnalyzer protocolAnalyzer(&powerController);
+static PDSink sink(&powerController);
 
 void setup() {
     Serial.begin(115200);

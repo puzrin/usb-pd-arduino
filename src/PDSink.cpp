@@ -12,19 +12,16 @@
 #include "TaskScheduler.h"
 
 
-template <class Controller>
-PDSink<Controller>::PDSink(Controller* controller) :
+PDSink::PDSink(PDController* controller) :
     controller(controller), eventCallback(nullptr), isBusPowered(true), ppsIndex(-1), desiredVoltage(5000),
     desiredCurrent(0), capabilitiesChanged(false), flagSourceCapChanged(false),
     flagVoltageChanged(false), flagPowerRejected(false) {}
 
-template <class Controller>
-void PDSink<Controller>::setBusPowered(bool busPowered) {
+void PDSink::setBusPowered(bool busPowered) {
     isBusPowered = busPowered;
 }
 
-template <class Controller>
-void PDSink<Controller>::reset(bool connected) {
+void PDSink::reset(bool connected) {
     activeVoltage = isBusPowered || connected ? 5000 : 0;
     activeCurrent = isBusPowered || connected ? 900 : 0;
     requestedVoltage = 5000;
@@ -37,15 +34,13 @@ void PDSink<Controller>::reset(bool connected) {
     Scheduler.cancelTask(TaskIdRequestPPS);
 }
 
-template <class Controller>
-void PDSink<Controller>::start(EventCallbackFunction callback) {
+void PDSink::start(EventCallbackFunction callback) {
     eventCallback = callback;
     reset(false);
     controller->startController([this](const PDControllerEvent& event) { handleEvent(event); });
 }
 
-template <class Controller>
-void PDSink<Controller>::poll() {
+void PDSink::poll() {
     if (eventCallback == nullptr)
         return;
 
@@ -65,8 +60,7 @@ void PDSink<Controller>::poll() {
     }
 }
 
-template <class Controller>
-bool PDSink<Controller>::requestPower(int voltage, int maxCurrent) {
+bool PDSink::requestPower(int voltage, int maxCurrent) {
     desiredVoltage = voltage;
     desiredCurrent = maxCurrent;
 
@@ -95,8 +89,7 @@ bool PDSink<Controller>::requestPower(int voltage, int maxCurrent) {
     }
 }
 
-template <class Controller>
-typename PDSink<Controller>::ErrorCode PDSink<Controller>::requestPowerCore(int voltage, int maxCurrent) {
+typename PDSink::ErrorCode PDSink::requestPowerCore(int voltage, int maxCurrent) {
 
     if (!isConnected())
         return notConnected;
@@ -126,8 +119,7 @@ typename PDSink<Controller>::ErrorCode PDSink<Controller>::requestPowerCore(int 
     return ok;
 }
 
-template <class Controller>
-void PDSink<Controller>::handleEvent(const PDControllerEvent& event) {
+void PDSink::handleEvent(const PDControllerEvent& event) {
     switch (event.type) {
 
     case PDControllerEventType::reset:
@@ -144,8 +136,7 @@ void PDSink<Controller>::handleEvent(const PDControllerEvent& event) {
     }
 }
 
-template <class Controller>
-void PDSink<Controller>::onMessageReceived(const PDMessage* message) {
+void PDSink::onMessageReceived(const PDMessage* message) {
     switch (message->type()) {
 
     case PDMessageType::dataSourceCapabilities:
@@ -164,8 +155,7 @@ void PDSink<Controller>::onMessageReceived(const PDMessage* message) {
     }
 }
 
-template <class Controller>
-void PDSink<Controller>::onSourceCapabilities(const PDMessage* message) {
+void PDSink::onSourceCapabilities(const PDMessage* message) {
     // parse source capabilities message
     PDSourceCapability::parseMessage(message, numSourceCapabilities, sourceCapabilities);
 
@@ -176,8 +166,7 @@ void PDSink<Controller>::onSourceCapabilities(const PDMessage* message) {
         requestPowerCore(5000, 0); // fallback: select 5V
 }
 
-template <class Controller>
-void PDSink<Controller>::onPsReady() {
+void PDSink::onPsReady() {
     if (capabilitiesChanged) {
         flagSourceCapChanged = true;
         capabilitiesChanged = false;
@@ -194,8 +183,7 @@ void PDSink<Controller>::onPsReady() {
         Scheduler.scheduleTaskAfter(TaskIdRequestPPS, [this](){ onRerequestPPS(); }, 8000000);
 }
 
-template <class Controller>
-void PDSink<Controller>::onRerequestPPS() {
+void PDSink::onRerequestPPS() {
     // request the same voltage again
     uint32_t requestObject = PDSourceCapability::powerRequestObject(ppsIndex, requestedVoltage, requestedCurrent,
                                                                     numSourceCapabilities, sourceCapabilities);
@@ -203,20 +191,3 @@ void PDSink<Controller>::onRerequestPPS() {
     if (!successful)
         Scheduler.scheduleTaskAfter(TaskIdRequestPPS, [this](){ onRerequestPPS(); }, 100000);
 }
-
-
-// template instantiation
-
-#if defined(ARDUINO_ARCH_ESP32)
-
-#include "phy/ESP32FUSB302/PDPhyFUSB302.h"
-template class PDSink<PDController<PDPhyFUSB302>>;
-
-#elif defined(ARDUINO_ARCH_STM32)
-
-#if defined(STM32G0xx) || defined(STM32G4xx)
-#include "phy/STM32UCPD/PDPhySTM32UCPD.h"
-template class PDSink<PDController<PDPhySTM32UCPD>>;
-#endif
-
-#endif

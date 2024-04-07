@@ -8,7 +8,6 @@
 
 #include <Arduino.h>
 #include "PDProtocolAnalyzer.h"
-#include "PDController.h"
 
 static const char* const ControlMessageNames[] = {
     [0] = nullptr,
@@ -65,13 +64,11 @@ static const char* const SOPSequenceNames[] = {
 };
 
 
-template <class Controller>
-PDProtocolAnalyzer<Controller>::PDProtocolAnalyzer(Controller* controller) : controller(controller) {
+PDProtocolAnalyzer::PDProtocolAnalyzer(PDController* controller) : controller(controller) {
     memset(&capabilities, 0, sizeof(capabilities));
 }
 
-template <class Controller>
-void PDProtocolAnalyzer<Controller>::poll() {
+void PDProtocolAnalyzer::poll() {
     auto logEntry = controller->popLogEntry();
     if (logEntry == nullptr)
         return;
@@ -112,8 +109,7 @@ void PDProtocolAnalyzer<Controller>::poll() {
     }
 }
 
-template <class Controller>
-void PDProtocolAnalyzer<Controller>::printMessage(const PDMessage* message) {
+void PDProtocolAnalyzer::printMessage(const PDMessage* message) {
     Serial.printf("CC%d %-5s %-7s %-20s %d  %04x",
             message->cc, getSOPSequenceName(message->sopSequence),
             getSender(message),getMessageName(message->type()),
@@ -139,8 +135,7 @@ void PDProtocolAnalyzer<Controller>::printMessage(const PDMessage* message) {
     }
 }
 
-template <class Controller>
-void PDProtocolAnalyzer<Controller>::printCapabilitiesDetails(const PDMessage* message) {
+void PDProtocolAnalyzer::printCapabilitiesDetails(const PDMessage* message) {
     auto numbObjects = message->numObjects();
 
     // remember source capabilities
@@ -194,8 +189,7 @@ void PDProtocolAnalyzer<Controller>::printCapabilitiesDetails(const PDMessage* m
     } 
 }
 
-template <class Controller>
-void PDProtocolAnalyzer<Controller>::printRequestDetails(const PDMessage* message) {
+void PDProtocolAnalyzer::printRequestDetails(const PDMessage* message) {
     auto object = message->objects[0];
     int objPos = (object >> 28) & 0x07;
     bool giveBack = (object & (1 << 27)) != 0;
@@ -225,8 +219,7 @@ void PDProtocolAnalyzer<Controller>::printRequestDetails(const PDMessage* messag
     Serial.println();
 }
 
-template <class Controller>
-const char* PDProtocolAnalyzer<Controller>::getMessageName(PDMessageType messageType) {
+const char* PDProtocolAnalyzer::getMessageName(PDMessageType messageType) {
     unsigned int index = (unsigned int)messageType;
     const char* name = nullptr;
     if (index < 0x80) {
@@ -242,8 +235,7 @@ const char* PDProtocolAnalyzer<Controller>::getMessageName(PDMessageType message
     return name != nullptr ? name : "<unknown>";
 }
 
-template <class Controller>
-const char* PDProtocolAnalyzer<Controller>::getSOPSequenceName(PDSOPSequence sequence) {
+const char* PDProtocolAnalyzer::getSOPSequenceName(PDSOPSequence sequence) {
     constexpr unsigned int arraySize = sizeof(SOPSequenceNames) / sizeof(SOPSequenceNames[0]);
     unsigned int index = (unsigned int)sequence;
     if (index >= arraySize)
@@ -251,8 +243,7 @@ const char* PDProtocolAnalyzer<Controller>::getSOPSequenceName(PDSOPSequence seq
     return SOPSequenceNames[index];
 }
 
-template <class Controller>
-const char* PDProtocolAnalyzer<Controller>::getSender(const PDMessage* message) {
+const char* PDProtocolAnalyzer::getSender(const PDMessage* message) {
     auto seq = message->sopSequence;
     if (seq == PDSOPSequence::sop) {
         return (message->header & 0x0100) != 0 ? "Source" : "Sink";
@@ -262,17 +253,3 @@ const char* PDProtocolAnalyzer<Controller>::getSender(const PDMessage* message) 
 
     return "";
 }
-
-#if defined(ARDUINO_ARCH_ESP32)
-
-#include "phy/ESP32FUSB302/PDPhyFUSB302.h"
-template class PDProtocolAnalyzer<PDController<PDPhyFUSB302>>;
-
-#elif defined(ARDUINO_ARCH_STM32)
-
-#if defined(STM32G0xx) || defined(STM32G4xx)
-#include "phy/STM32UCPD/PDPhySTM32UCPD.h"
-template class PDProtocolAnalyzer<PDController<PDPhySTM32UCPD>>;
-#endif
-
-#endif

@@ -27,7 +27,7 @@ PDPhyFUSB302::PDPhyFUSB302()
     : wire(&Wire), rxMessage(nullptr), controller(nullptr), state(FUSB302State::NotStarted), 
         i2CAddress(0x22), interruptPin(10), activeCC(0) {}
 
-void PDPhyFUSB302::startSink(PDController<PDPhyFUSB302>* controller) {
+void PDPhyFUSB302::startSink(PDController* controller) {
     controller->setGoodCrcHandling(true);
     this->controller = controller;
 

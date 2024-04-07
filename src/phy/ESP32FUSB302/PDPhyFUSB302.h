@@ -13,7 +13,8 @@
 #if defined(ARDUINO_ARCH_ESP32)
 
 #include <Wire.h>
-#include "PDController.h"
+#include "PDPhy.h"
+
 
 /// FUSB302 state
 enum class FUSB302State {
@@ -54,7 +55,8 @@ enum class FUSB302Event {
  * For I2C communication, the global `Wire` object is used. It should
  * be configured with a frequency of at least 1 MHz.
  */
-struct PDPhyFUSB302 {
+class PDPhyFUSB302 : public PDPhy {
+public:
 
     /**
      * @brief Construct a new instance.
@@ -114,7 +116,7 @@ struct PDPhyFUSB302 {
      * 
      * @param controller the PD controller to be notified about events
      */
-    void startSink(PDController<PDPhyFUSB302>* controller);
+    void startSink(PDController* controller);
 
     /**
      * @brief Sets the message and buffer to be used for the next incoming message.
@@ -145,7 +147,7 @@ private:
     TwoWire* wire;
     QueueHandle_t eventQueue;
     PDMessage* rxMessage;
-    PDController<PDPhyFUSB302>* controller;
+    PDController* controller;
     FUSB302State state;
     uint8_t i2CAddress;
     uint8_t interruptPin;

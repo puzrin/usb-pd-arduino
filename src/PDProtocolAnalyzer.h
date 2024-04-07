@@ -8,11 +8,10 @@
 
 #pragma once
 
-#include "PDMessage.h"
+#include "PDController.h"
 
-template <class Controller>
 struct PDProtocolAnalyzer {
-    PDProtocolAnalyzer(Controller* controller);
+    PDProtocolAnalyzer(PDController* controller);
     void poll();
 
 private:
@@ -23,6 +22,6 @@ private:
     const char* getSOPSequenceName(PDSOPSequence sequence);
     const char* getSender(const PDMessage* message);
 
-    Controller* controller;
+    PDController* controller;
     PDMessage capabilities;
 };

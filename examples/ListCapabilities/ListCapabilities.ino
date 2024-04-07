@@ -18,12 +18,12 @@
 
 #if defined(ARDUINO_ARCH_ESP32)
 
-typedef PDPhyFUSB302 PDPhy;
+typedef PDPhyFUSB302 Phy;
 #define USB_PD_PHY USB_PD_PHY_FUSB302
 
 #elif defined(ARDUINO_ARCH_STM32)
 
-typedef PDPhySTM32UCPD PDPhy;
+typedef PDPhySTM32UCPD Phy;
 #define USB_PD_PHY USB_PD_PHY_UCPD1
 
 #endif
@@ -31,9 +31,9 @@ typedef PDPhySTM32UCPD PDPhy;
 #include "USBPowerDeliveryCode.h"
 
 
-static PDPhy pdPhy;
-static PDController<PDPhy> powerController(&pdPhy);
-static PDSink<PDController<PDPhy>> sink(&powerController);
+static Phy pdPhy;
+static PDController powerController(&pdPhy);
+static PDSink sink(&powerController);
 
 
 void setup() {
