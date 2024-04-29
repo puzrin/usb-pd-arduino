@@ -173,7 +173,7 @@ private:
     int readMessage();
     void sendMessage(const PDMessage* msg);
 
-    uint8_t readRegister(uint8_t r);
+    void readRegister(uint8_t r, uint8_t* value);
     void readRegister(uint8_t firstReg, int n, uint8_t* data);
     void writeRegister(uint8_t r, uint8_t value);
     void writeRegister(uint8_t firstReg, int n, const uint8_t* data);

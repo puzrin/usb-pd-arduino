@@ -117,8 +117,10 @@ void PDPhyFUSB302::handleInterrupts() {
 
 // handle single interrupt event
 void PDPhyFUSB302::handleInterrupt() {
-    uint8_t interrupt = readRegister(Reg::Interrupt);
-    uint8_t interruptA = readRegister(Reg::InterruptA);
+    uint8_t interrupt;
+    readRegister(Reg::Interrupt, &interrupt);
+    uint8_t interruptA;
+    readRegister(Reg::InterruptA, &interruptA);
 
     // hard reset
     if ((interruptA & InterruptA::I_HardReset) != 0) {
@@ -131,7 +133,10 @@ void PDPhyFUSB302::handleInterrupt() {
 
     // toggling done
     if ((interruptA & InterruptA::I_TogDone) != 0) {
-        uint8_t togss = readRegister(Reg::Status1A) & Status1A::TogssMask;
+        uint8_t togss;        
+        readRegister(Reg::Status1A, &togss);
+        togss &= Status1A::TogssMask;
+
         if (togss == Status1A::TogssSnkOnCC1) {
             transitionToMeasuring(1);
         } else if (togss == Status1A::TogssSnkOnCC2) {
@@ -143,7 +148,9 @@ void PDPhyFUSB302::handleInterrupt() {
 
     // VBUS OK
     if ((interrupt & Interrupt::I_VbusOk) != 0) {
-        bool vbusok = (readRegister(Reg::Status0) & Status0::VbusOk) != 0;
+        uint8_t Status0;
+        readRegister(Reg::Status0, &Status0);
+        bool vbusok = (Status0 & Status0::VbusOk) != 0;
         bool isAttached = state != FUSB302State::RetryWaiting
                 && state != FUSB302State::Monitoring
                 && state != FUSB302State::Measuring;
@@ -162,7 +169,8 @@ void PDPhyFUSB302::handleInterrupt() {
 
     if ((interruptA & InterruptA::I_TxSent) != 0) {
         // turn off internal oscillator if TX FIFO is empty
-        uint8_t Status1 = readRegister(Reg::Status1);
+        uint8_t Status1;
+        readRegister(Reg::Status1, &Status1);
         if ((Status1 & Status1::TxEmpty) != 0)
             writeRegister(Reg::Power, Power::PwrAll & ~Power::PwrIntOsc);
         controller->onMessageTransmitted(true);
@@ -171,7 +179,8 @@ void PDPhyFUSB302::handleInterrupt() {
     // CRC check (message received)
     if ((interrupt & Interrupt::I_CRCCheck) != 0) {
 
-        uint8_t Status0 = readRegister(Reg::Status0);
+        uint8_t Status0;
+        readRegister(Reg::Status0, &Status0);
         if ((Status0 & Status0::CRCCheck) == 0) {
             writeRegister(Reg::Control1, Control1::RxFlush);
         } else {
@@ -314,7 +323,8 @@ static const char* const BaseProductIds[] = { "FUSB302BxxX", "FUSB302B01MPX", "F
 static const char* Versions = "????????ABCDEFGH";
 
 void PDPhyFUSB302::getDeviceId(char* deviceIdBuffer) {
-    uint8_t deviceId = readRegister(Reg::DeviceId);
+    uint8_t deviceId;
+    readRegister(Reg::DeviceId, &deviceId);
     uint8_t versionId = deviceId >> 4;
     uint8_t productId = (deviceId >> 2) & 0x03;
     uint8_t revisionId = deviceId & 0x03;
@@ -326,12 +336,8 @@ void PDPhyFUSB302::getDeviceId(char* deviceIdBuffer) {
     strcat(deviceIdBuffer, piece);
 }
 
-uint8_t PDPhyFUSB302::readRegister(uint8_t r) {
-    wire->beginTransmission(i2CAddress);
-    wire->write(r);
-    wire->endTransmission(false);
-    wire->requestFrom(i2CAddress, (uint8_t)1);
-    return (uint8_t) wire->read();
+void PDPhyFUSB302::readRegister(uint8_t r, uint8_t* value) {
+    readRegister(r, 1, value);
 }
 
 void PDPhyFUSB302::readRegister(uint8_t firstReg, int n, uint8_t* data) {
@@ -343,10 +349,7 @@ void PDPhyFUSB302::readRegister(uint8_t firstReg, int n, uint8_t* data) {
 }
 
 void PDPhyFUSB302::writeRegister(uint8_t r, uint8_t value) {
-    wire->beginTransmission(i2CAddress);
-    wire->write(r);
-    wire->write(value);
-    wire->endTransmission();
+    writeRegister(r, 1, &value);
 }
 
 void PDPhyFUSB302::writeRegister(uint8_t firstReg, int n, const uint8_t* data) {
