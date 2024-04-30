@@ -8,7 +8,7 @@
 // FUSB302B PHY (for ESP32 only)
 //
 
-#if defined(ARDUINO_ARCH_ESP32) && !defined(PD_USE_FUSB302_PT)
+#if defined(ARDUINO_ARCH_ESP32) && defined(PD_USE_FUSB302_PT)
 
 #include <Arduino.h>
 #include <FunctionalInterrupt.h>
